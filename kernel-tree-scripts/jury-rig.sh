@@ -4,7 +4,7 @@
 # Copyright (C) 2015-2019 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
 
 K="$1"
-WG="$(readlink -f "$(dirname "$(readlink -f "$0")")/../../src/")"
+WG="$(readlink -f "$(dirname "$(readlink -f "$0")")/../src/")"
 
 if [[ ! -e $K/net/Kconfig ]]; then
 	echo "You must specify the location of kernel sources as the first argument." >&2

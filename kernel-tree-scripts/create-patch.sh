@@ -5,10 +5,10 @@
 
 shopt -s globstar
 
-WG="$(readlink -f "$(dirname "$(readlink -f "$0")")/../../src/")"
+WG="$(readlink -f "$(dirname "$(readlink -f "$0")")/../src/")"
 
 for i in "$WG"/**/{*.c,*.h,*.S,*.pl,*.include} "$WG/Kbuild" "$WG/Kconfig"; do
-	[[ $i == "$WG/tools/"* || $i == "$WG/tests/"* ]] && continue
+	[[ $i == "$WG/tests/"* ]] && continue
 	diff -u /dev/null "$i" | sed "s:${WG}:b/net/wireguard:;s:Kbuild:Makefile:"
 done
 
