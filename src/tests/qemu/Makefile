@@ -49,13 +49,13 @@ KERNEL_URL_DIRECTORY := https://git.kernel.org/torvalds/t/
 endif
 
 $(eval $(call tar_download,KERNEL,linux,$(KERNEL_VERSION),.tar.gz,$(KERNEL_URL_DIRECTORY)))
-$(eval $(call tar_download,MUSL,musl,1.1.20,.tar.gz,https://www.musl-libc.org/releases/))
+$(eval $(call tar_download,MUSL,musl,1.1.24,.tar.gz,https://www.musl-libc.org/releases/))
 $(eval $(call tar_download,LIBMNL,libmnl,1.0.4,.tar.bz2,https://www.netfilter.org/projects/libmnl/files/))
-$(eval $(call tar_download,IPERF,iperf,3.1.7,.tar.gz,http://downloads.es.net/pub/iperf/))
+$(eval $(call tar_download,IPERF,iperf,3.7,.tar.gz,https://downloads.es.net/pub/iperf/))
 $(eval $(call tar_download,BASH,bash,5.0,.tar.gz,https://ftp.gnu.org/gnu/bash/))
-$(eval $(call tar_download,IPROUTE2,iproute2,5.1.0,.tar.gz,https://www.kernel.org/pub/linux/utils/net/iproute2/))
-$(eval $(call tar_download,IPTABLES,iptables,1.6.1,.tar.bz2,https://www.netfilter.org/projects/iptables/files/))
-$(eval $(call tar_download,NMAP,nmap,7.60,.tar.bz2,https://nmap.org/dist/))
+$(eval $(call tar_download,IPROUTE2,iproute2,5.4.0,.tar.xz,https://www.kernel.org/pub/linux/utils/net/iproute2/))
+$(eval $(call tar_download,IPTABLES,iptables,1.8.4,.tar.bz2,https://www.netfilter.org/projects/iptables/files/))
+$(eval $(call tar_download,NMAP,nmap,7.80,.tar.bz2,https://nmap.org/dist/))
 $(eval $(call tar_download,IPUTILS,iputils,s20161105,.tar.gz,https://github.com/iputils/iputils/archive/s20161105.tar.gz/#))
 $(eval $(call tar_download,WIREGUARD_TOOLS,wireguard-tools,1.0.20191226,.tar.xz,https://git.zx2c4.com/wireguard-tools/snapshot/))
 
@@ -206,10 +206,11 @@ else ifeq ($(ARCH),m68k)
 QEMU_ARCH := m68k
 KERNEL_ARCH := m68k
 KERNEL_BZIMAGE := $(KERNEL_PATH)/vmlinux
+KERNEL_CMDLINE := $(shell sed -n 's/CONFIG_CMDLINE=\(.*\)/\1/p' arch/m68k.config)
 ifeq ($(CHOST),$(CBUILD))
-QEMU_MACHINE := -cpu host,accel=kvm -machine q800
+QEMU_MACHINE := -cpu host,accel=kvm -machine q800 -smp 1 -append $(KERNEL_CMDLINE)
 else
-QEMU_MACHINE := -machine q800
+QEMU_MACHINE := -machine q800 -smp 1 -append $(KERNEL_CMDLINE)
 endif
 else
 $(error I only build: x86_64, i686, arm, armeb, aarch64, aarch64_be, mips, mipsel, mips64, mips64el, powerpc64le, powerpc, m68k)
@@ -250,8 +251,8 @@ $(BUILD_PATH)/init-cpio-spec.txt:
 	echo "file /bin/ss $(IPROUTE2_PATH)/misc/ss 755 0 0" >> $@
 	echo "file /bin/ping $(IPUTILS_PATH)/ping 755 0 0" >> $@
 	echo "file /bin/ncat $(NMAP_PATH)/ncat/ncat 755 0 0" >> $@
-	echo "file /bin/xtables-multi $(IPTABLES_PATH)/iptables/xtables-multi 755 0 0" >> $@
-	echo "slink /bin/iptables xtables-multi 777 0 0" >> $@
+	echo "file /bin/xtables-legacy-multi $(IPTABLES_PATH)/iptables/xtables-legacy-multi 755 0 0" >> $@
+	echo "slink /bin/iptables xtables-legacy-multi 777 0 0" >> $@
 	echo "slink /bin/ping6 ping 777 0 0" >> $@
 	echo "dir /lib 755 0 0" >> $@
 	echo "file /lib/libc.so $(MUSL_PATH)/lib/libc.so 755 0 0" >> $@
@@ -285,7 +286,7 @@ $(KERNEL_PATH)/.config: kernel.config arch/$(ARCH).config | $(KERNEL_PATH)/.inst
 	cd $(KERNEL_PATH) && ARCH=$(KERNEL_ARCH) scripts/kconfig/merge_config.sh -n .config minimal.config
 	$(if $(findstring -debug,$(KERNEL_VERSION)),cd $(KERNEL_PATH) && sed -i 's/^EXTRAVERSION =.*/EXTRAVERSION = -debug/' Makefile && ARCH=$(KERNEL_ARCH) scripts/kconfig/merge_config.sh -n .config $(PWD)/debug.config,)
 
-$(KERNEL_BZIMAGE): $(KERNEL_PATH)/.config $(BUILD_PATH)/init-cpio-spec.txt $(MUSL_PATH)/lib/libc.so $(IPERF_PATH)/src/iperf3 $(IPUTILS_PATH)/ping $(BASH_PATH)/bash $(IPROUTE2_PATH)/misc/ss $(IPROUTE2_PATH)/ip/ip $(IPTABLES_PATH)/iptables/xtables-multi $(NMAP_PATH)/ncat/ncat $(WIREGUARD_TOOLS_PATH)/src/wg $(BUILD_PATH)/init ../netns.sh
+$(KERNEL_BZIMAGE): $(KERNEL_PATH)/.config $(BUILD_PATH)/init-cpio-spec.txt $(MUSL_PATH)/lib/libc.so $(IPERF_PATH)/src/iperf3 $(IPUTILS_PATH)/ping $(BASH_PATH)/bash $(IPROUTE2_PATH)/misc/ss $(IPROUTE2_PATH)/ip/ip $(IPTABLES_PATH)/iptables/xtables-legacy-multi $(NMAP_PATH)/ncat/ncat $(WIREGUARD_TOOLS_PATH)/src/wg $(BUILD_PATH)/init ../netns.sh
 	LOCALVERSION="" $(MAKE) -C $(KERNEL_PATH) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(CROSS_COMPILE) CC="$(NOPIE_GCC)"
 
 $(BUILD_PATH)/include/linux/.installed: | $(KERNEL_PATH)/.config
@@ -305,7 +306,7 @@ $(BUILD_PATH)/include/.installed: $(MUSL_PATH)/lib/libc.so
 
 $(MUSL_CC): $(MUSL_PATH)/lib/libc.so
 	sh $(MUSL_PATH)/tools/musl-gcc.specs.sh $(BUILD_PATH)/include $(MUSL_PATH)/lib /lib/ld-linux.so.1 > $(BUILD_PATH)/musl-gcc.specs
-	printf '#!/bin/sh\nexec "$(REAL_CC)" --specs="$(BUILD_PATH)/musl-gcc.specs" -fno-stack-protector -no-pie "$$@"\n' > $(BUILD_PATH)/musl-gcc
+	printf '#!/bin/sh\nexec "$(REAL_CC)" --specs="$(BUILD_PATH)/musl-gcc.specs" "$$@"\n' > $(BUILD_PATH)/musl-gcc
 	chmod +x $(BUILD_PATH)/musl-gcc
 
 $(IPERF_PATH)/.installed: $(IPERF_TAR)
@@ -316,7 +317,7 @@ $(IPERF_PATH)/.installed: $(IPERF_TAR)
 	touch $@
 
 $(IPERF_PATH)/src/iperf3: | $(IPERF_PATH)/.installed $(USERSPACE_DEPS)
-	cd $(IPERF_PATH) && CFLAGS="$(CFLAGS) -D_GNU_SOURCE" ./configure --prefix=/ $(CROSS_COMPILE_FLAG) --enable-static --disable-shared
+	cd $(IPERF_PATH) && CFLAGS="$(CFLAGS) -D_GNU_SOURCE" ./configure --prefix=/ $(CROSS_COMPILE_FLAG) --enable-static --disable-shared --with-openssl=no
 	$(MAKE) -C $(IPERF_PATH)
 	$(STRIP) -s $@
 
@@ -382,7 +383,7 @@ $(IPTABLES_PATH)/.installed: $(IPTABLES_TAR)
 	sed -i -e "/nfnetlink=[01]/s:=[01]:=0:" -e "/nfconntrack=[01]/s:=[01]:=0:" $(IPTABLES_PATH)/configure
 	touch $@
 
-$(IPTABLES_PATH)/iptables/xtables-multi: | $(IPTABLES_PATH)/.installed $(LIBMNL_PATH)/src/.libs/libmnl.a $(USERSPACE_DEPS)
+$(IPTABLES_PATH)/iptables/xtables-legacy-multi: | $(IPTABLES_PATH)/.installed $(LIBMNL_PATH)/src/.libs/libmnl.a $(USERSPACE_DEPS)
 	cd $(IPTABLES_PATH) && PKG_CONFIG_LIBDIR="$(LIBMNL_PATH)" ./configure --prefix=/ $(CROSS_COMPILE_FLAG) --enable-static --disable-shared --disable-nftables --disable-bpf-compiler --disable-nfsynproxy --disable-libipq --with-kernel=$(BUILD_PATH)/include
 	$(MAKE) -C $(IPTABLES_PATH)
 	$(STRIP) -s $@
@@ -393,8 +394,9 @@ $(NMAP_PATH)/.installed: $(NMAP_TAR)
 	touch $@
 
 $(NMAP_PATH)/ncat/ncat: | $(NMAP_PATH)/.installed $(USERSPACE_DEPS)
-	cd $(NMAP_PATH) && ./configure --prefix=/ $(CROSS_COMPILE_FLAG) --enable-static --disable-shared --without-ndiff --without-zenmap --without-nping --with-libpcap=included --with-libpcre=included --with-libdnet=included --without-liblua --with-liblinear=included --without-nmap-update --without-openssl --with-pcap=linux
-	$(MAKE) -C $(NMAP_PATH) build-ncat
+	cd $(NMAP_PATH) && ./configure --prefix=/ $(CROSS_COMPILE_FLAG) --enable-static --disable-shared --without-ndiff --without-zenmap --without-nping --with-libpcap=included --with-libpcre=included --with-libdnet=included --without-liblua --with-liblinear=included --without-nmap-update --without-openssl --with-pcap=linux --without-libssh
+	$(MAKE) -C $(NMAP_PATH)/libpcap
+	$(MAKE) -C $(NMAP_PATH)/ncat
 	$(STRIP) -s $@
 
 clean:
