@@ -286,7 +286,7 @@ $(KERNEL_PATH)/.config: kernel.config arch/$(ARCH).config | $(KERNEL_PATH)/.inst
 	cd $(KERNEL_PATH) && ARCH=$(KERNEL_ARCH) scripts/kconfig/merge_config.sh -n .config minimal.config
 	$(if $(findstring -debug,$(KERNEL_VERSION)),cd $(KERNEL_PATH) && sed -i 's/^EXTRAVERSION =.*/EXTRAVERSION = -debug/' Makefile && ARCH=$(KERNEL_ARCH) scripts/kconfig/merge_config.sh -n .config $(PWD)/debug.config,)
 
-$(KERNEL_BZIMAGE): $(KERNEL_PATH)/.config $(BUILD_PATH)/init-cpio-spec.txt $(MUSL_PATH)/lib/libc.so $(IPERF_PATH)/src/iperf3 $(IPUTILS_PATH)/ping $(BASH_PATH)/bash $(IPROUTE2_PATH)/misc/ss $(IPROUTE2_PATH)/ip/ip $(IPTABLES_PATH)/iptables/xtables-legacy-multi $(NMAP_PATH)/ncat/ncat $(WIREGUARD_TOOLS_PATH)/src/wg $(BUILD_PATH)/init ../netns.sh
+$(KERNEL_BZIMAGE): $(KERNEL_PATH)/.config $(BUILD_PATH)/init-cpio-spec.txt $(MUSL_PATH)/lib/libc.so $(IPERF_PATH)/src/iperf3 $(IPUTILS_PATH)/ping $(BASH_PATH)/bash $(IPROUTE2_PATH)/misc/ss $(IPROUTE2_PATH)/ip/ip $(IPTABLES_PATH)/iptables/xtables-legacy-multi $(NMAP_PATH)/ncat/ncat $(WIREGUARD_TOOLS_PATH)/src/wg $(BUILD_PATH)/init ../netns.sh $(WIREGUARD_SOURCES)
 	LOCALVERSION="" $(MAKE) -C $(KERNEL_PATH) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(CROSS_COMPILE) CC="$(NOPIE_GCC)"
 
 $(BUILD_PATH)/include/linux/.installed: | $(KERNEL_PATH)/.config
