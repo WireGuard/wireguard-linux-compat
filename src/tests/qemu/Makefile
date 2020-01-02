@@ -5,6 +5,7 @@
 PWD := $(shell pwd)
 
 CHOST := $(shell gcc -dumpmachine)
+HOST_ARCH := $(firstword $(subst -, ,$(CHOST)))
 ifneq (,$(ARCH))
 CBUILD := $(subst -gcc,,$(lastword $(subst /, ,$(firstword $(filter-out android,$(wildcard $(foreach bindir,$(subst :, ,$(PATH)),$(bindir)/$(ARCH)-*-gcc)))))))
 endif
@@ -63,7 +64,7 @@ export CFLAGS ?= -O3 -pipe
 export LDFLAGS ?=
 export CPPFLAGS := -I$(BUILD_PATH)/include
 
-ifeq ($(CHOST),$(CBUILD))
+ifeq ($(HOST_ARCH),$(ARCH))
 CROSS_COMPILE_FLAG := --host=$(CHOST)
 NOPIE_GCC := gcc -fno-PIE
 CFLAGS += -march=native
@@ -81,7 +82,7 @@ ifeq ($(ARCH),aarch64)
 QEMU_ARCH := aarch64
 KERNEL_ARCH := arm64
 KERNEL_BZIMAGE := $(KERNEL_PATH)/arch/arm64/boot/Image
-ifeq ($(CHOST),$(CBUILD))
+ifeq ($(HOST_ARCH),$(ARCH))
 QEMU_MACHINE := -cpu host -machine virt,gic_version=host,accel=kvm
 else
 QEMU_MACHINE := -cpu cortex-a53 -machine virt
@@ -91,7 +92,7 @@ else ifeq ($(ARCH),aarch64_be)
 QEMU_ARCH := aarch64
 KERNEL_ARCH := arm64
 KERNEL_BZIMAGE := $(KERNEL_PATH)/arch/arm64/boot/Image
-ifeq ($(CHOST),$(CBUILD))
+ifeq ($(HOST_ARCH),$(ARCH))
 QEMU_MACHINE := -cpu host -machine virt,gic_version=host,accel=kvm
 else
 QEMU_MACHINE := -cpu cortex-a53 -machine virt
@@ -101,7 +102,7 @@ else ifeq ($(ARCH),arm)
 QEMU_ARCH := arm
 KERNEL_ARCH := arm
 KERNEL_BZIMAGE := $(KERNEL_PATH)/arch/arm/boot/zImage
-ifeq ($(CHOST),$(CBUILD))
+ifeq ($(HOST_ARCH),$(ARCH))
 QEMU_MACHINE := -cpu host -machine virt,gic_version=host,accel=kvm
 else
 QEMU_MACHINE := -cpu cortex-a15 -machine virt
@@ -111,7 +112,7 @@ else ifeq ($(ARCH),armeb)
 QEMU_ARCH := arm
 KERNEL_ARCH := arm
 KERNEL_BZIMAGE := $(KERNEL_PATH)/arch/arm/boot/zImage
-ifeq ($(CHOST),$(CBUILD))
+ifeq ($(HOST_ARCH),$(ARCH))
 QEMU_MACHINE := -cpu host -machine virt,gic_version=host,accel=kvm
 else
 QEMU_MACHINE := -cpu cortex-a15 -machine virt
@@ -122,7 +123,7 @@ else ifeq ($(ARCH),x86_64)
 QEMU_ARCH := x86_64
 KERNEL_ARCH := x86_64
 KERNEL_BZIMAGE := $(KERNEL_PATH)/arch/x86/boot/bzImage
-ifeq ($(CHOST),$(CBUILD))
+ifeq ($(HOST_ARCH),$(ARCH))
 QEMU_MACHINE := -cpu host -machine q35,accel=kvm
 else
 QEMU_MACHINE := -cpu Skylake-Server -machine q35
@@ -132,7 +133,7 @@ else ifeq ($(ARCH),i686)
 QEMU_ARCH := i386
 KERNEL_ARCH := x86
 KERNEL_BZIMAGE := $(KERNEL_PATH)/arch/x86/boot/bzImage
-ifeq ($(subst i686,x86_64,$(CBUILD)),$(CHOST))
+ifeq ($(subst x86_64,i686,$(HOST_ARCH)),$(ARCH))
 QEMU_MACHINE := -cpu host -machine q35,accel=kvm
 else
 QEMU_MACHINE := -cpu coreduo -machine q35
@@ -142,7 +143,7 @@ else ifeq ($(ARCH),mips64)
 QEMU_ARCH := mips64
 KERNEL_ARCH := mips
 KERNEL_BZIMAGE := $(KERNEL_PATH)/vmlinux
-ifeq ($(CHOST),$(CBUILD))
+ifeq ($(HOST_ARCH),$(ARCH))
 QEMU_MACHINE := -cpu host -machine malta,accel=kvm
 CFLAGS += -EB
 else
@@ -153,7 +154,7 @@ else ifeq ($(ARCH),mips64el)
 QEMU_ARCH := mips64el
 KERNEL_ARCH := mips
 KERNEL_BZIMAGE := $(KERNEL_PATH)/vmlinux
-ifeq ($(CHOST),$(CBUILD))
+ifeq ($(HOST_ARCH),$(ARCH))
 QEMU_MACHINE := -cpu host -machine malta,accel=kvm
 CFLAGS += -EL
 else
@@ -164,7 +165,7 @@ else ifeq ($(ARCH),mips)
 QEMU_ARCH := mips
 KERNEL_ARCH := mips
 KERNEL_BZIMAGE := $(KERNEL_PATH)/vmlinux
-ifeq ($(CHOST),$(CBUILD))
+ifeq ($(HOST_ARCH),$(ARCH))
 QEMU_MACHINE := -cpu host -machine malta,accel=kvm
 CFLAGS += -EB
 else
@@ -175,7 +176,7 @@ else ifeq ($(ARCH),mipsel)
 QEMU_ARCH := mipsel
 KERNEL_ARCH := mips
 KERNEL_BZIMAGE := $(KERNEL_PATH)/vmlinux
-ifeq ($(CHOST),$(CBUILD))
+ifeq ($(HOST_ARCH),$(ARCH))
 QEMU_MACHINE := -cpu host -machine malta,accel=kvm
 CFLAGS += -EL
 else
@@ -186,7 +187,7 @@ else ifeq ($(ARCH),powerpc64le)
 QEMU_ARCH := ppc64
 KERNEL_ARCH := powerpc
 KERNEL_BZIMAGE := $(KERNEL_PATH)/vmlinux
-ifeq ($(CHOST),$(CBUILD))
+ifeq ($(HOST_ARCH),$(ARCH))
 QEMU_MACHINE := -cpu host,accel=kvm -machine pseries
 else
 QEMU_MACHINE := -machine pseries
@@ -196,7 +197,7 @@ else ifeq ($(ARCH),powerpc)
 QEMU_ARCH := ppc
 KERNEL_ARCH := powerpc
 KERNEL_BZIMAGE := $(KERNEL_PATH)/arch/powerpc/boot/uImage
-ifeq ($(CHOST),$(CBUILD))
+ifeq ($(HOST_ARCH),$(ARCH))
 QEMU_MACHINE := -cpu host,accel=kvm -machine ppce500
 else
 QEMU_MACHINE := -machine ppce500
@@ -207,7 +208,7 @@ QEMU_ARCH := m68k
 KERNEL_ARCH := m68k
 KERNEL_BZIMAGE := $(KERNEL_PATH)/vmlinux
 KERNEL_CMDLINE := $(shell sed -n 's/CONFIG_CMDLINE=\(.*\)/\1/p' arch/m68k.config)
-ifeq ($(CHOST),$(CBUILD))
+ifeq ($(HOST_ARCH),$(ARCH))
 QEMU_MACHINE := -cpu host,accel=kvm -machine q800 -smp 1 -append $(KERNEL_CMDLINE)
 else
 QEMU_MACHINE := -machine q800 -smp 1 -append $(KERNEL_CMDLINE)
