@@ -1020,6 +1020,10 @@ out:
 #endif
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
+#define COMPAT_CANNOT_USE_MAX_MTU
+#endif
+
 #if defined(ISUBUNTU1604)
 #include <linux/siphash.h>
 #ifndef _WG_LINUX_SIPHASH_H

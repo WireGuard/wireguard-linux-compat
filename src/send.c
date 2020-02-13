@@ -149,7 +149,8 @@ static unsigned int calculate_skb_padding(struct sk_buff *skb)
 	 * wouldn't want the final subtraction to overflow in the case of the
 	 * padded_size being clamped.
 	 */
-	unsigned int last_unit = skb->len % PACKET_CB(skb)->mtu;
+	unsigned int last_unit = PACKET_CB(skb)->mtu ?
+				 skb->len % PACKET_CB(skb)->mtu : skb->len;
 	unsigned int padded_size = ALIGN(last_unit, MESSAGE_PADDING_MULTIPLE);
 
 	if (padded_size > PACKET_CB(skb)->mtu)
