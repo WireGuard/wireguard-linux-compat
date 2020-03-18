@@ -147,7 +147,7 @@ static unsigned int calculate_skb_padding(struct sk_buff *skb)
 	unsigned int padded_size, last_unit = skb->len;
 
 	if (unlikely(!PACKET_CB(skb)->mtu))
-		return -last_unit % MESSAGE_PADDING_MULTIPLE;
+		return ALIGN(last_unit, MESSAGE_PADDING_MULTIPLE) - last_unit;
 
 	/* We do this modulo business with the MTU, just in case the networking
 	 * layer gives us a packet that's bigger than the MTU. In that case, we
