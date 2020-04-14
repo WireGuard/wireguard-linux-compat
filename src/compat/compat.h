@@ -1037,7 +1037,7 @@ static inline void skb_reset_redirect(struct sk_buff *skb)
 }
 #endif
 
-#if defined(ISUBUNTU1604)
+#if defined(ISUBUNTU1604) || defined(ISRHEL7)
 #include <linux/siphash.h>
 #ifndef _WG_LINUX_SIPHASH_H
 #define hsiphash_2u32 siphash_2u32
