@@ -1040,6 +1040,7 @@ static inline void skb_reset_redirect(struct sk_buff *skb)
 #if defined(ISUBUNTU1604) || defined(ISRHEL7)
 #include <linux/siphash.h>
 #ifndef _WG_LINUX_SIPHASH_H
+#define hsiphash_1u32 siphash_1u32
 #define hsiphash_2u32 siphash_2u32
 #define hsiphash_3u32 siphash_3u32
 #define hsiphash_key_t siphash_key_t
