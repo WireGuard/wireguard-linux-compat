@@ -292,13 +292,13 @@ static inline void *__ptr_ring_consume(struct ptr_ring *r)
 {
 	void *ptr;
 
-	/* The READ_ONCE in __ptr_ring_peek guarantees that anyone
-	 * accessing data through the pointer is up to date. Pairs
-	 * with smp_wmb in __ptr_ring_produce.
-	 */
 	ptr = __ptr_ring_peek(r);
 	if (ptr)
 		__ptr_ring_discard_one(r);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
+	/* The READ_ONCE in __ptr_ring_peek doesn't imply a barrier on old kernels. */
+	smp_read_barrier_depends();
+#endif
 
 	return ptr;
 }
