@@ -468,7 +468,7 @@ static inline void **__ptr_ring_init_queue_alloc(unsigned int size, gfp_t gfp)
 {
 	if (size > KMALLOC_MAX_SIZE / sizeof(void *))
 		return NULL;
-	return kvmalloc_array(size, sizeof(void *), gfp | __GFP_ZERO);
+	return kvmalloc(size * sizeof(void *), gfp | __GFP_ZERO);
 }
 
 static inline void __ptr_ring_set_size(struct ptr_ring *r, int size)
