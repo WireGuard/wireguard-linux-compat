@@ -96,18 +96,6 @@
 #define ipv6_dst_lookup(a, b, c, d) ipv6_dst_lookup(b, c, d)
 #endif
 
-#if (LINUX_VERSION_CODE == KERNEL_VERSION(4, 4, 0) || \
-    (LINUX_VERSION_CODE < KERNEL_VERSION(4, 3, 5) && LINUX_VERSION_CODE >= KERNEL_VERSION(4, 2, 0)) || \
-    (LINUX_VERSION_CODE < KERNEL_VERSION(4, 1, 17) && LINUX_VERSION_CODE > KERNEL_VERSION(3, 19, 0)) || \
-    (LINUX_VERSION_CODE < KERNEL_VERSION(3, 18, 27) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 17, 0)) || \
-    (LINUX_VERSION_CODE < KERNEL_VERSION(3, 16, 8) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 15, 0)) || \
-    (LINUX_VERSION_CODE < KERNEL_VERSION(3, 14, 40) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 13, 0)) || \
-    (LINUX_VERSION_CODE < KERNEL_VERSION(3, 12, 54))) && !defined(ISUBUNTU1404) && !defined(ISRHEL7)
-#include <linux/if.h>
-#include <net/ip_tunnels.h>
-#define IP6_ECN_set_ce(a, b) IP6_ECN_set_ce(b)
-#endif
-
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 12, 0) && IS_ENABLED(CONFIG_IPV6) && !defined(ISRHEL7)
 #include <net/ipv6.h>
 struct ipv6_stub_type {
