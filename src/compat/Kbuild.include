@@ -100,3 +100,7 @@ ifeq ($(CONFIG_X86_64),y)
 		asflags-y += $(adx_instr)
 	endif
 endif
+
+ifneq ($(shell grep -s -F "\#define LINUX_PACKAGE_ID \" Debian " "$(CURDIR)/include/generated/package.h"),)
+ccflags-y += -DISDEBIAN
+endif
