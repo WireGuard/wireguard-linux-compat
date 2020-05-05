@@ -284,6 +284,8 @@ void wg_packet_tx_worker(struct work_struct *work)
 
 		wg_noise_keypair_put(keypair, false);
 		wg_peer_put(peer);
+		if (need_resched())
+			cond_resched();
 	}
 }
 
