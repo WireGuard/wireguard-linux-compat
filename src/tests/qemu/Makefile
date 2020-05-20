@@ -350,7 +350,7 @@ $(IPUTILS_PATH)/.installed: $(IPUTILS_TAR)
 	touch $@
 
 $(IPUTILS_PATH)/ping: | $(IPUTILS_PATH)/.installed $(USERSPACE_DEPS)
-	$(MAKE) -C $(IPUTILS_PATH) USE_CAP=no USE_IDN=no USE_NETTLE=no USE_CRYPTO=no ping
+	$(MAKE) -C $(IPUTILS_PATH) USE_CAP=no USE_IDN=no USE_NETTLE=no USE_CRYPTO=no CFLAGS="-fcommon $(CFLAGS)" ping
 	$(STRIP) -s $@
 
 $(BASH_PATH)/.installed: $(BASH_TAR)
