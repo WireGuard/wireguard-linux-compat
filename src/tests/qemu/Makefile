@@ -67,7 +67,7 @@ export CPPFLAGS := -I$(BUILD_PATH)/include
 ifeq ($(HOST_ARCH),$(ARCH))
 CROSS_COMPILE_FLAG := --host=$(CHOST)
 CFLAGS += -march=native
-OMIT_AVX512 := $(shell gcc -march=native -Q --help=target | sed -n 's/.*\-m\(avx512[^ ]*\).*\[enabled\].*/-mno-\1/p')
+OMIT_AVX512 := $(shell $(CBUILD)-gcc -march=native -Q --help=target | sed -n 's/.*\-m\(avx512[^ ]*\).*\[enabled\].*/-mno-\1/p')
 CFLAGS += $(OMIT_AVX512)
 STRIP := strip
 else
