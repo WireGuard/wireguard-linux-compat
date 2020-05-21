@@ -66,7 +66,6 @@ export CPPFLAGS := -I$(BUILD_PATH)/include
 
 ifeq ($(HOST_ARCH),$(ARCH))
 CROSS_COMPILE_FLAG := --host=$(CHOST)
-NOPIE_GCC := gcc -fno-PIE
 CFLAGS += -march=native
 OMIT_AVX512 := $(shell gcc -march=native -Q --help=target | sed -n 's/.*\-m\(avx512[^ ]*\).*\[enabled\].*/-mno-\1/p')
 CFLAGS += $(OMIT_AVX512)
@@ -75,7 +74,6 @@ else
 $(info Cross compilation: building for $(CBUILD) using $(CHOST))
 CROSS_COMPILE_FLAG := --build=$(CBUILD) --host=$(CHOST)
 export CROSS_COMPILE=$(CBUILD)-
-NOPIE_GCC := $(CBUILD)-gcc -fno-PIE
 STRIP := $(CBUILD)-strip
 endif
 ifeq ($(ARCH),aarch64)
@@ -288,7 +286,7 @@ $(KERNEL_PATH)/.config: kernel.config arch/$(ARCH).config | $(KERNEL_PATH)/.inst
 	$(if $(findstring -debug,$(KERNEL_VERSION)),cd $(KERNEL_PATH) && sed -i 's/^EXTRAVERSION =.*/EXTRAVERSION = -debug/' Makefile && ARCH=$(KERNEL_ARCH) scripts/kconfig/merge_config.sh -n .config $(PWD)/debug.config,)
 
 $(KERNEL_BZIMAGE): $(KERNEL_PATH)/.config $(BUILD_PATH)/init-cpio-spec.txt $(MUSL_PATH)/lib/libc.so $(IPERF_PATH)/src/iperf3 $(IPUTILS_PATH)/ping $(BASH_PATH)/bash $(IPROUTE2_PATH)/misc/ss $(IPROUTE2_PATH)/ip/ip $(IPTABLES_PATH)/iptables/xtables-legacy-multi $(NMAP_PATH)/ncat/ncat $(WIREGUARD_TOOLS_PATH)/src/wg $(BUILD_PATH)/init ../netns.sh $(WIREGUARD_SOURCES)
-	LOCALVERSION="" $(MAKE) -C $(KERNEL_PATH) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(CROSS_COMPILE) CC="$(NOPIE_GCC)"
+	LOCALVERSION="" $(MAKE) -C $(KERNEL_PATH) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(CROSS_COMPILE) CC="$(CBUILD)-gcc -fno-PIE"
 
 $(BUILD_PATH)/include/linux/.installed: | $(KERNEL_PATH)/.config
 	LOCALVERSION="" $(MAKE) -C $(KERNEL_PATH) INSTALL_HDR_PATH=$(BUILD_PATH) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(CROSS_COMPILE) headers_install
