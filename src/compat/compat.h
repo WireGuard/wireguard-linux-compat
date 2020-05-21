@@ -222,6 +222,8 @@ static inline void skb_scrub_packet(struct sk_buff *skb, bool xnet)
 	skb_orphan(skb);
 	skb->mark = 0;
 }
+#elif LINUX_VERSION_CODE < KERNEL_VERSION(3, 12, 0) && LINUX_VERSION_CODE >= KERNEL_VERSION(3, 11, 0)
+#define skb_scrub_packet(a, b) skb_scrub_packet(a)
 #endif
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 12, 0) || defined(ISUBUNTU1404)) && !defined(ISRHEL7)
