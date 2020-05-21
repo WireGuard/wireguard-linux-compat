@@ -261,6 +261,7 @@ ifeq ($(findstring -git,$(KERNEL_VERSION)),)
 $(KERNEL_PATH)/.installed: $(KERNEL_TAR)
 	mkdir -p $(KERNEL_PATH)
 	flock -s $<.lock tar --strip-components=1 -C $(KERNEL_PATH) -xf $<
+	find $(KERNEL_PATH) -type f -name Makefile -exec sed -i 's/-Werror\(\s\|$$\)//g' {} +
 	sed -i "/^if INET\$$/a source \"net/wireguard/Kconfig\"" $(KERNEL_PATH)/net/Kconfig
 	sed -i "/^obj-\$$(CONFIG_NETFILTER).*+=/a obj-\$$(CONFIG_WIREGUARD) += wireguard/" $(KERNEL_PATH)/net/Makefile
 	ln -sfT $(shell readlink -f ../..) $(KERNEL_PATH)/net/wireguard
