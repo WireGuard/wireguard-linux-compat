@@ -233,7 +233,8 @@ static inline u32 __compat_prandom_u32_max(u32 ep_ro)
 #define prandom_u32_max __compat_prandom_u32_max
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 75) && !defined(ISRHEL7)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 14, 0)
+#include <linux/kernel.h>
 #ifndef U8_MAX
 #define U8_MAX ((u8)~0U)
 #endif
