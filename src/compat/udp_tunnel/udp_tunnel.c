@@ -135,7 +135,7 @@ static void __compat_fake_destructor(struct sk_buff *skb)
 {
 }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 12, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 11, 0)
 static void __compat_iptunnel_xmit(struct rtable *rt, struct sk_buff *skb,
 		  __be32 src, __be32 dst, __u8 proto,
 		  __u8 tos, __u8 ttl, __be16 df, bool xnet)
