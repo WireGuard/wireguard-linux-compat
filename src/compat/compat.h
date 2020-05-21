@@ -1026,16 +1026,16 @@ static inline void skb_reset_redirect(struct sk_buff *skb)
 }
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 14, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 14, 0) && !defined(ISRHEL7)
 #define skb_get_hash skb_get_rxhash
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 15, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 15, 0) && !defined(ISRHEL7)
 #define hash rxhash
 #define l4_hash l4_rxhash
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0) && !defined(ISRHEL7)
 #define sw_hash ignore_df = 0; skb->nf_trace = skb->ooo_okay
 #endif
 
