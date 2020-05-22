@@ -263,6 +263,7 @@ $(KERNEL_PATH)/.installed: $(KERNEL_TAR)
 	flock -s $<.lock tar --strip-components=1 -C $(KERNEL_PATH) -xf $<
 	find $(KERNEL_PATH) -type f -name Makefile -exec sed -i 's/-Werror\(\s\|$$\)//g' {} +
 	sed -i "/printf '\\\\#/d" $(KERNEL_PATH)/tools/build/Build.include || true
+	sed -i '/jmp early_idt_handler$$/a .fill early_idt_handlers + i*9 - ., 1, 0xcc' $(KERNEL_PATH)/arch/x86/kernel/head_{64,32}.S || true
 	printf 'ifdef CONFIG_X86_64\nLDFLAGS += $$(call ld-option, -z max-page-size=0x200000)\nendif\n' >> $(KERNEL_PATH)/arch/x86/Makefile
 	sed -i "/^if INET\$$/a source \"net/wireguard/Kconfig\"" $(KERNEL_PATH)/net/Kconfig
 	sed -i "/^obj-\$$(CONFIG_NETFILTER).*+=/a obj-\$$(CONFIG_WIREGUARD) += wireguard/" $(KERNEL_PATH)/net/Makefile
