@@ -43,13 +43,23 @@ $(DISTFILES_PATH)/$(1):
 	flock -x $$@.lock -c '[ -f $$@ ] && exit 0; wget -O $$@ $(MIRROR)$(1) || wget -t inf --retry-on-http-error=404 -O $$@ $(2)$(1) || rm -f $$@'
 endef
 
+ifneq ($(findstring https://,$(KERNEL_VERSION)),)
+KERNEL_URL := $(word 1,$(KERNEL_VERSION))
+KERNEL_NAME := $(word 2,$(KERNEL_VERSION))
+KERNEL_TAR := $(DISTFILES_PATH)/linux-$(KERNEL_NAME)-$(notdir $(KERNEL_URL))
+KERNEL_PATH := $(BUILD_PATH)/linux-$(KERNEL_NAME)
+KERNEL_VERSION := $(KERNEL_NAME)
+$(KERNEL_TAR):
+	mkdir -p $(DISTFILES_PATH)
+	flock -x $@.lock -c '[ -f $@ ] && exit 0; wget -O $@ $(KERNEL_URL) || rm -f $@'
+else
 ifeq ($(findstring -rc,$(KERNEL_VERSION)),)
 KERNEL_URL_DIRECTORY := https://cdn.kernel.org/pub/linux/kernel/v$(firstword $(subst ., ,$(KERNEL_VERSION:-debug=))).x/
 else
 KERNEL_URL_DIRECTORY := https://git.kernel.org/torvalds/t/
 endif
-
 $(eval $(call tar_download,KERNEL,linux,$(KERNEL_VERSION),.tar.gz,$(KERNEL_URL_DIRECTORY)))
+endif
 $(eval $(call tar_download,MUSL,musl,1.1.24,.tar.gz,https://www.musl-libc.org/releases/))
 $(eval $(call tar_download,LIBMNL,libmnl,1.0.4,.tar.bz2,https://www.netfilter.org/projects/libmnl/files/))
 $(eval $(call tar_download,IPERF,iperf,3.7,.tar.gz,https://downloads.es.net/pub/iperf/))
