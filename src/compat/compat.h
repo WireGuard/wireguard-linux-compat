@@ -34,16 +34,8 @@
 #define ISUBUNTU1910
 #endif
 #endif
-#ifdef CONFIG_SUSE_KERNEL
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 5, 0) && LINUX_VERSION_CODE >= KERNEL_VERSION(4, 4, 0)
-#define ISOPENSUSE42
-#endif
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 13, 0) && LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)
+#if defined(CONFIG_SUSE_KERNEL) && LINUX_VERSION_CODE < KERNEL_VERSION(4, 13, 0) && LINUX_VERSION_CODE >= KERNEL_VERSION(4, 12, 0)
 #define ISOPENSUSE15
-#endif
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0) && LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
-#define ISOPENSUSE152
-#endif
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 10, 0)
@@ -119,7 +111,7 @@ static const struct ipv6_stub_type ipv6_stub_impl = {
 static const struct ipv6_stub_type *ipv6_stub = &ipv6_stub_impl;
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0) && IS_ENABLED(CONFIG_IPV6) && !defined(ISOPENSUSE42) && !defined(ISRHEL7)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 8, 0) && IS_ENABLED(CONFIG_IPV6) && !defined(ISRHEL7)
 #include <net/addrconf.h>
 static inline bool ipv6_mod_enabled(void)
 {
@@ -860,7 +852,7 @@ static inline void skb_mark_not_on_list(struct sk_buff *skb)
 #endif
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 5, 0) && !defined(ISOPENSUSE152)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 5, 0)
 #define genl_dumpit_info(cb) ({ \
 	struct { struct nlattr **attrs; } *a = (void *)((u8 *)cb->args + offsetofend(struct dump_ctx, next_allowedip)); \
 	BUILD_BUG_ON(sizeof(cb->args) < offsetofend(struct dump_ctx, next_allowedip) + sizeof(*a)); \
