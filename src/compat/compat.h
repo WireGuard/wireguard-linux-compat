@@ -1036,6 +1036,10 @@ static inline void skb_reset_redirect(struct sk_buff *skb)
 #define sw_hash ignore_df = 0; skb->nf_trace = skb->ooo_okay
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 3, 0)
+#define pre_exit exit
+#endif
+
 #if defined(ISUBUNTU1604) || defined(ISRHEL7)
 #include <linux/siphash.h>
 #ifndef _WG_LINUX_SIPHASH_H
