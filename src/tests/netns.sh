@@ -346,7 +346,8 @@ ip1 -4 rule add table main suppress_prefixlength 0
 if [[ $(ip1 -4 rule show all) == *suppress_prefixlength* ]]; then
 	# Flood the pings instead of sending just one, to trigger routing table reference counting bugs.
 	n1 ping -W 1 -c 100 -f 192.168.99.7
-	n1 ping -W 1 -c 100 -f abab::1111
+	# ca7a03c got ported to 5.2 when it shouldn't have.
+	[[ $(< /proc/version) =~ ^Linux\ version\ 5\.2[.\ ] ]] || n1 ping -W 1 -c 100 -f abab::1111
 fi
 
 # Have ns2 NAT into wg0 packets from ns0, but return an icmp error along the right route.
