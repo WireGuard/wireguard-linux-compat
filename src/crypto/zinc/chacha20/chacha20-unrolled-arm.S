@@ -162,9 +162,9 @@
 	.endr
 .endm
 
-.macro _chacha		nrounds
+.macro _chacha		nrounds, instance
 
-.Lnext_block\@:
+.Lnext_block\instance:
 	// Stack: unused0-unused1 x10-x11 x0-x15 OUT IN LEN
 	// Registers contain x0-x9,x12-x15.
 
@@ -188,12 +188,12 @@
 
 	// Use slow path if fewer than 64 bytes remain.
 	cmp		r11, #64
-	blt		.Lxor_slowpath\@
+	blt		.Lxor_slowpath\instance
 
 	// Use slow path if IN and/or OUT isn't 4-byte aligned.  Needed even on
 	// ARMv6+, since ldmia and stmia (used below) still require alignment.
 	tst		r10, #3
-	bne		.Lxor_slowpath\@
+	bne		.Lxor_slowpath\instance
 
 	// Fast path: XOR 64 bytes of aligned data.
 
@@ -262,9 +262,9 @@
 	  subs		r9, #64			// decrement and check LEN
 	stmia		r14!, {r2-r5}
 
-	beq		.Ldone\@
+	beq		.Ldone\instance
 
-.Lprepare_for_next_block\@:
+.Lprepare_for_next_block\instance:
 
 	// Stack: x0-x15 OUT IN LEN
 
@@ -287,9 +287,9 @@
 	ldmia		r14!, {r0-r11}		// load x0-x11
 	__strd		r10, r11, sp, 8		// store x10-x11 before state
 	ldmia		r14, {r10-r12,r14}	// load x12-x15
-	b		.Lnext_block\@
+	b		.Lnext_block\instance
 
-.Lxor_slowpath\@:
+.Lxor_slowpath\instance:
 	// Slow path: < 64 bytes remaining, or unaligned input or output buffer.
 	// We handle it by storing the 64 bytes of keystream to the stack, then
 	// XOR-ing the needed portion with the data.
@@ -356,38 +356,38 @@
 .if __LINUX_ARM_ARCH__ < 6
 	orr		r2, r12, r14
 	tst		r2, #3			// IN or OUT misaligned?
-	bne		.Lxor_next_byte\@
+	bne		.Lxor_next_byte\instance
 .endif
 
 	// XOR a word at a time
 .rept 16
 	subs		r1, #4
-	blt		.Lxor_words_done\@
+	blt		.Lxor_words_done\instance
 	ldr		r2, [r12], #4
 	ldr		r3, [r0], #4
 	eor		r2, r2, r3
 	str		r2, [r14], #4
 .endr
-	b		.Lxor_slowpath_done\@
-.Lxor_words_done\@:
+	b		.Lxor_slowpath_done\instance
+.Lxor_words_done\instance:
 	ands		r1, r1, #3
-	beq		.Lxor_slowpath_done\@
+	beq		.Lxor_slowpath_done\instance
 
 	// XOR a byte at a time
-.Lxor_next_byte\@:
+.Lxor_next_byte\instance:
 	ldrb		r2, [r12], #1
 	ldrb		r3, [r0], #1
 	eor		r2, r2, r3
 	strb		r2, [r14], #1
 	subs		r1, #1
-	bne		.Lxor_next_byte\@
+	bne		.Lxor_next_byte\instance
 
-.Lxor_slowpath_done\@:
+.Lxor_slowpath_done\instance:
 	subs		r9, #64
 	add		sp, #96
-	bgt		.Lprepare_for_next_block\@
+	bgt		.Lprepare_for_next_block\instance
 
-.Ldone\@:
+.Ldone\instance:
 .endm	// _chacha
 
 /*

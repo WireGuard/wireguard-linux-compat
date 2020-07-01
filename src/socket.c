@@ -357,7 +357,7 @@ int wg_socket_init(struct wg_device *wg, u16 port)
 	struct socket *new4 = NULL, *new6 = NULL;
 	struct udp_port_cfg port4 = {
 		.family = AF_INET,
-		.local_ip.s_addr = htonl(INADDR_ANY),
+		{.local_ip.s_addr = htonl(INADDR_ANY)},
 		.local_udp_port = htons(port),
 		.use_udp_checksums = true
 	};
