@@ -942,7 +942,7 @@ static inline int skb_ensure_writable(struct sk_buff *skb, int write_len)
 #include <net/ipv6.h>
 #include <net/icmp.h>
 #include <net/netfilter/nf_conntrack.h>
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 1, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 1, 0) && !defined(ISRHEL8)
 #include <net/netfilter/nf_nat_core.h>
 #endif
 static inline void __compat_icmp_ndo_send(struct sk_buff *skb_in, int type, int code, __be32 info)
