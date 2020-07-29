@@ -1048,6 +1048,8 @@ static inline void skb_reset_redirect(struct sk_buff *skb)
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)
 #include <linux/skbuff.h>
+#include <linux/ip.h>
+#include <linux/ipv6.h>
 static inline __be16 ip_tunnel_parse_protocol(const struct sk_buff *skb)
 {
 	if (skb_network_header(skb) >= skb->head &&
