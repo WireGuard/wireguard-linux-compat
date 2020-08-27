@@ -834,10 +834,10 @@ static inline void skb_mark_not_on_list(struct sk_buff *skb)
 #endif
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 20, 0) && !defined(ISRHEL8)
-#define NLA_EXACT_LEN NLA_UNSPEC
+#define NLA_POLICY_EXACT_LEN(_len) { .type = NLA_UNSPEC, .len = _len }
 #endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 2, 0) && !defined(ISRHEL8)
-#define NLA_MIN_LEN NLA_UNSPEC
+#define NLA_POLICY_MIN_LEN(_len) { .type = NLA_UNSPEC, .len = _len }
 #define COMPAT_CANNOT_INDIVIDUAL_NETLINK_OPS_POLICY
 #endif
 
