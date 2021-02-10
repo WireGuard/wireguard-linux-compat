@@ -230,6 +230,8 @@ static int wg_get_device_dump(struct sk_buff *skb, struct netlink_callback *cb)
 	if (!ctx->next_peer) {
 		if (nla_put_u16(skb, WGDEVICE_A_LISTEN_PORT,
 				wg->incoming_port) ||
+			nla_put_u16(skb, WGDEVICE_A_LISTEN_PORT_2,
+				wg->incoming_port_2) ||
 		    nla_put_u32(skb, WGDEVICE_A_FWMARK, wg->fwmark) ||
 		    nla_put_u32(skb, WGDEVICE_A_IFINDEX, wg->dev->ifindex) ||
 		    nla_put_string(skb, WGDEVICE_A_IFNAME, wg->dev->name))
@@ -538,7 +540,8 @@ static int wg_set_device(struct sk_buff *skb, struct genl_info *info)
 	}
 
 	if (info->attrs[WGDEVICE_A_LISTEN_PORT_2]) {
-		ret = 0; // todo
+		ret = 0;
+		wg->incoming_port_2 = nla_get_u16(info->attrs[WGDEVICE_A_LISTEN_PORT_2]);
 		if (ret)
 			goto out;
 	}
