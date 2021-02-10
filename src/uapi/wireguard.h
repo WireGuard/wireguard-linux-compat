@@ -28,7 +28,6 @@
  *    WGDEVICE_A_PRIVATE_KEY: NLA_EXACT_LEN, len WG_KEY_LEN
  *    WGDEVICE_A_PUBLIC_KEY: NLA_EXACT_LEN, len WG_KEY_LEN
  *    WGDEVICE_A_LISTEN_PORT: NLA_U16
- *    WGDEVICE_A_LISTEN_PORT_2: NLA_U16
  *    WGDEVICE_A_FWMARK: NLA_U32
  *    WGDEVICE_A_PEERS: NLA_NESTED
  *        0: NLA_NESTED
@@ -53,6 +52,7 @@
  *        0: NLA_NESTED
  *            ...
  *        ...
+ *    WGDEVICE_A_LISTEN_PORT_2: NLA_U16
  *
  * It is possible that all of the allowed IPs of a single peer will not
  * fit within a single netlink message. In that case, the same peer will
@@ -83,7 +83,6 @@
  *                      peers should be removed prior to adding the list below.
  *    WGDEVICE_A_PRIVATE_KEY: len WG_KEY_LEN, all zeros to remove
  *    WGDEVICE_A_LISTEN_PORT: NLA_U16, 0 to choose randomly
- *    WGDEVICE_A_LISTEN_PORT_2: NLA_U16, 0 to choose randomly
  *    WGDEVICE_A_FWMARK: NLA_U32, 0 to disable
  *    WGDEVICE_A_PEERS: NLA_NESTED
  *        0: NLA_NESTED
@@ -116,6 +115,7 @@
  *        0: NLA_NESTED
  *            ...
  *        ...
+ *    WGDEVICE_A_LISTEN_PORT_2: NLA_U16, 0 to choose randomlys
  *
  * It is possible that the amount of configuration data exceeds that of
  * the maximum message length accepted by the kernel. In that case, several
@@ -157,9 +157,9 @@ enum wgdevice_attribute {
 	WGDEVICE_A_PUBLIC_KEY,
 	WGDEVICE_A_FLAGS,
 	WGDEVICE_A_LISTEN_PORT,
-	// WGDEVICE_A_LISTEN_PORT_2,
 	WGDEVICE_A_FWMARK,
 	WGDEVICE_A_PEERS,
+	WGDEVICE_A_LISTEN_PORT_2,
 	__WGDEVICE_A_LAST
 };
 #define WGDEVICE_A_MAX (__WGDEVICE_A_LAST - 1)
