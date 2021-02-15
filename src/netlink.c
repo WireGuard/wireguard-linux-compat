@@ -312,19 +312,19 @@ static int wg_get_device_done(struct netlink_callback *cb)
 	return 0;
 }
 
-static int set_port(struct wg_device *wg, u16 port)
+static int set_port(struct wg_device *wg, u16 port, u32 port_id)
 {
 	struct wg_peer *peer;
-
-	if (wg->incoming_port == port)
+	u16 *incoming_port = port_id == WGDEVICE_MAIN_PORT ? &(wg->incoming_port) : &(wg->incoming_port_2);
+	if (*incoming_port == port)
 		return 0;
 	list_for_each_entry(peer, &wg->peer_list, peer_list)
 		wg_socket_clear_peer_endpoint_src(peer);
 	if (!netif_running(wg->dev)) {
-		wg->incoming_port = port;
+		*incoming_port = port;
 		return 0;
 	}
-	return wg_socket_init(wg, port);
+	return wg_socket_init(wg, port, port_id);
 }
 
 static int set_allowedip(struct wg_peer *peer, struct nlattr **attrs)
@@ -534,14 +534,14 @@ static int wg_set_device(struct sk_buff *skb, struct genl_info *info)
 
 	if (info->attrs[WGDEVICE_A_LISTEN_PORT]) {
 		ret = set_port(wg,
-			nla_get_u16(info->attrs[WGDEVICE_A_LISTEN_PORT]));
+			nla_get_u16(info->attrs[WGDEVICE_A_LISTEN_PORT]), WGDEVICE_MAIN_PORT);
 		if (ret)
 			goto out;
 	}
 
 	if (info->attrs[WGDEVICE_A_LISTEN_PORT_2]) {
-		ret = 0;
-		wg->incoming_port_2 = nla_get_u16(info->attrs[WGDEVICE_A_LISTEN_PORT_2]);
+		ret = set_port(wg,
+			nla_get_u16(info->attrs[WGDEVICE_A_LISTEN_PORT_2]), WGDEVICE_SECONDARY_PORT);
 		if (ret)
 			goto out;
 	}

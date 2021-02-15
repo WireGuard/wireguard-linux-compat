@@ -345,7 +345,7 @@ static void set_sock_opts(struct socket *sock)
 	sk_set_memalloc(sock->sk);
 }
 
-int wg_socket_init(struct wg_device *wg, u16 port)
+int wg_socket_init(struct wg_device *wg, u16 port, u32 port_id)
 {
 	struct net *net;
 	int ret;
@@ -408,27 +408,38 @@ retry:
 	}
 #endif
 
-	wg_socket_reinit(wg, new4->sk, new6 ? new6->sk : NULL);
+	wg_socket_reinit(wg, new4->sk, new6 ? new6->sk : NULL, port_id);
 	ret = 0;
 out:
 	put_net(net);
 	return ret;
 }
 
-void wg_socket_reinit(struct wg_device *wg, struct sock *new4,
-		      struct sock *new6)
+void wg_socket_reinit(struct wg_device *wg, struct sock *new4, struct sock *new6, u32 port_id)
 {
 	struct sock *old4, *old6;
 
 	mutex_lock(&wg->socket_update_lock);
-	old4 = rcu_dereference_protected(wg->sock4,
+	if (port_id == WGDEVICE_MAIN_PORT) {
+		old4 = rcu_dereference_protected(wg->sock4,
 				lockdep_is_held(&wg->socket_update_lock));
-	old6 = rcu_dereference_protected(wg->sock6,
+		old6 = rcu_dereference_protected(wg->sock6,
 				lockdep_is_held(&wg->socket_update_lock));
-	rcu_assign_pointer(wg->sock4, new4);
-	rcu_assign_pointer(wg->sock6, new6);
-	if (new4)
-		wg->incoming_port = ntohs(inet_sk(new4)->inet_sport);
+		rcu_assign_pointer(wg->sock4, new4);
+		rcu_assign_pointer(wg->sock6, new6);
+		if (new4)
+			wg->incoming_port = ntohs(inet_sk(new4)->inet_sport);
+	} else if (port_id == WGDEVICE_SECONDARY_PORT) {
+		old4 = rcu_dereference_protected(wg->sock4_2,
+				lockdep_is_held(&wg->socket_update_lock));
+		old6 = rcu_dereference_protected(wg->sock6_2,
+				lockdep_is_held(&wg->socket_update_lock));
+		rcu_assign_pointer(wg->sock4_2, new4);
+		rcu_assign_pointer(wg->sock6_2, new6);
+		if (new4)
+			wg->incoming_port_2 = ntohs(inet_sk(new4)->inet_sport);
+	}
+
 	mutex_unlock(&wg->socket_update_lock);
 	synchronize_rcu();
 	sock_free(old4);

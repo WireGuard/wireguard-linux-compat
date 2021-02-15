@@ -37,10 +37,16 @@ struct prev_queue {
 	atomic_t count;
 };
 
+enum {
+	WGDEVICE_MAIN_PORT,
+	WGDEVICE_SECONDARY_PORT
+};
+
 struct wg_device {
 	struct net_device *dev;
 	struct crypt_queue encrypt_queue, decrypt_queue;
 	struct sock __rcu *sock4, *sock6;
+	struct sock __rcu *sock4_2, *sock6_2;
 	struct net __rcu *creating_net;
 	struct noise_static_identity static_identity;
 	struct workqueue_struct *handshake_receive_wq, *handshake_send_wq;

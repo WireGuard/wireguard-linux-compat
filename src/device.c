@@ -54,7 +54,10 @@ static int wg_open(struct net_device *dev)
 #endif
 
 	mutex_lock(&wg->device_update_lock);
-	ret = wg_socket_init(wg, wg->incoming_port);
+	ret = wg_socket_init(wg, wg->incoming_port, WGDEVICE_MAIN_PORT);
+	if (ret < 0)
+		goto out;
+	ret = wg_socket_init(wg, wg->incoming_port_2, WGDEVICE_SECONDARY_PORT);
 	if (ret < 0)
 		goto out;
 	list_for_each_entry(peer, &wg->peer_list, peer_list) {
@@ -117,7 +120,8 @@ static int wg_stop(struct net_device *dev)
 	}
 	mutex_unlock(&wg->device_update_lock);
 	skb_queue_purge(&wg->incoming_handshakes);
-	wg_socket_reinit(wg, NULL, NULL);
+	wg_socket_reinit(wg, NULL, NULL, WGDEVICE_MAIN_PORT);
+	wg_socket_reinit(wg, NULL, NULL, WGDEVICE_SECONDARY_PORT);
 	return 0;
 }
 
@@ -236,7 +240,8 @@ static void wg_destruct(struct net_device *dev)
 	mutex_lock(&wg->device_update_lock);
 	rcu_assign_pointer(wg->creating_net, NULL);
 	wg->incoming_port = 0;
-	wg_socket_reinit(wg, NULL, NULL);
+	wg_socket_reinit(wg, NULL, NULL, WGDEVICE_MAIN_PORT);
+	wg_socket_reinit(wg, NULL, NULL, WGDEVICE_SECONDARY_PORT);
 	/* The final references are cleared in the below calls to destroy_workqueue. */
 	wg_peer_remove_all(wg);
 	destroy_workqueue(wg->handshake_receive_wq);
@@ -419,7 +424,8 @@ static void wg_netns_pre_exit(struct net *net)
 			netif_carrier_off(wg->dev);
 			mutex_lock(&wg->device_update_lock);
 			rcu_assign_pointer(wg->creating_net, NULL);
-			wg_socket_reinit(wg, NULL, NULL);
+			wg_socket_reinit(wg, NULL, NULL, WGDEVICE_MAIN_PORT);
+			wg_socket_reinit(wg, NULL, NULL, WGDEVICE_SECONDARY_PORT);
 			mutex_unlock(&wg->device_update_lock);
 		}
 	}
