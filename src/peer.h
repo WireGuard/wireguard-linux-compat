@@ -34,6 +34,11 @@ struct endpoint {
 	};
 };
 
+enum {
+	WGPEER_MAIN_ENDPOINT,
+	WGPEER_SECONDARY_ENDPOINT
+};
+
 struct wg_peer {
 	struct wg_device *device;
 	struct prev_queue tx_queue, rx_queue;
@@ -41,9 +46,9 @@ struct wg_peer {
 	int serial_work_cpu;
 	bool is_dead;
 	struct noise_keypairs keypairs;
-	struct endpoint endpoint;
-	struct dst_cache endpoint_cache;
-	rwlock_t endpoint_lock;
+	struct endpoint endpoint, endpoint_2;
+	struct dst_cache endpoint_cache, endpoint_cache_2;
+	rwlock_t endpoint_lock, endpoint_lock_2;
 	struct noise_handshake handshake;
 	atomic64_t last_sent_handshake;
 	struct work_struct transmit_handshake_work, clear_peer_work, transmit_packet_work;

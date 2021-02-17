@@ -34,6 +34,8 @@ struct wg_peer *wg_peer_create(struct wg_device *wg,
 		return ERR_PTR(ret);
 	if (dst_cache_init(&peer->endpoint_cache, GFP_KERNEL))
 		goto err;
+	if (dst_cache_init(&peer->endpoint_cache_2, GFP_KERNEL))
+		goto err;
 
 	peer->device = wg;
 	wg_noise_handshake_init(&peer->handshake, &wg->static_identity,
@@ -49,6 +51,7 @@ struct wg_peer *wg_peer_create(struct wg_device *wg,
 	wg_prev_queue_init(&peer->tx_queue);
 	wg_prev_queue_init(&peer->rx_queue);
 	rwlock_init(&peer->endpoint_lock);
+	rwlock_init(&peer->endpoint_lock_2);
 	kref_init(&peer->refcount);
 	skb_queue_head_init(&peer->staged_packet_queue);
 	wg_noise_reset_last_sent_handshake(&peer->last_sent_handshake);
@@ -188,6 +191,7 @@ static void rcu_release(struct rcu_head *rcu)
 	struct wg_peer *peer = container_of(rcu, struct wg_peer, rcu);
 
 	dst_cache_destroy(&peer->endpoint_cache);
+	dst_cache_destroy(&peer->endpoint_cache_2);
 	WARN_ON(wg_prev_queue_dequeue(&peer->tx_queue) || peer->tx_queue.peeked);
 	WARN_ON(wg_prev_queue_dequeue(&peer->rx_queue) || peer->rx_queue.peeked);
 

@@ -39,7 +39,8 @@ static const struct nla_policy peer_policy[WGPEER_A_MAX + 1] = {
 	[WGPEER_A_RX_BYTES]				= { .type = NLA_U64 },
 	[WGPEER_A_TX_BYTES]				= { .type = NLA_U64 },
 	[WGPEER_A_ALLOWEDIPS]				= { .type = NLA_NESTED },
-	[WGPEER_A_PROTOCOL_VERSION]			= { .type = NLA_U32 }
+	[WGPEER_A_PROTOCOL_VERSION]			= { .type = NLA_U32 },
+	[WGPEER_A_ENDPOINT_2]				= NLA_POLICY_MIN_LEN(sizeof(struct sockaddr))
 };
 
 static const struct nla_policy allowedip_policy[WGALLOWEDIP_A_MAX + 1] = {
@@ -154,6 +155,19 @@ get_peer(struct wg_peer *peer, struct sk_buff *skb, struct dump_ctx *ctx)
 				       sizeof(peer->endpoint.addr6),
 				       &peer->endpoint.addr6);
 		read_unlock_bh(&peer->endpoint_lock);
+		if (fail)
+			goto err;
+
+		read_lock_bh(&peer->endpoint_lock_2);
+		if (peer->endpoint_2.addr.sa_family == AF_INET)
+			fail = nla_put(skb, WGPEER_A_ENDPOINT_2,
+				       sizeof(peer->endpoint_2.addr4),
+				       &peer->endpoint_2.addr4);
+		else if (peer->endpoint_2.addr.sa_family == AF_INET6)
+			fail = nla_put(skb, WGPEER_A_ENDPOINT_2,
+				       sizeof(peer->endpoint_2.addr6),
+				       &peer->endpoint_2.addr6);
+		read_unlock_bh(&peer->endpoint_lock_2);
 		if (fail)
 			goto err;
 		allowedips_node =
@@ -315,7 +329,7 @@ static int wg_get_device_done(struct netlink_callback *cb)
 static int set_port(struct wg_device *wg, u16 port, u32 port_id)
 {
 	struct wg_peer *peer;
-	u16 *incoming_port = port_id == WGDEVICE_MAIN_PORT ? &(wg->incoming_port) : &(wg->incoming_port_2);
+	u16 *incoming_port = (port_id == WGDEVICE_MAIN_PORT ? &wg->incoming_port : &wg->incoming_port_2);
 	if (*incoming_port == port)
 		return 0;
 	list_for_each_entry(peer, &wg->peer_list, peer_list)
@@ -445,7 +459,22 @@ static int set_peer(struct wg_device *wg, struct nlattr **attrs)
 			struct endpoint endpoint = { { { 0 } } };
 
 			memcpy(&endpoint.addr, addr, len);
-			wg_socket_set_peer_endpoint(peer, &endpoint);
+			wg_socket_set_peer_endpoint(peer, &endpoint, WGPEER_MAIN_ENDPOINT);
+		}
+	}
+
+	if (attrs[WGPEER_A_ENDPOINT_2]) {
+		struct sockaddr *addr = nla_data(attrs[WGPEER_A_ENDPOINT_2]);
+		size_t len = nla_len(attrs[WGPEER_A_ENDPOINT_2]);
+
+		if ((len == sizeof(struct sockaddr_in) &&
+		     addr->sa_family == AF_INET) ||
+		    (len == sizeof(struct sockaddr_in6) &&
+		     addr->sa_family == AF_INET6)) {
+			struct endpoint endpoint = { { { 0 } } };
+
+			memcpy(&endpoint.addr, addr, len);
+			wg_socket_set_peer_endpoint(peer, &endpoint, WGPEER_SECONDARY_ENDPOINT);
 		}
 	}
 

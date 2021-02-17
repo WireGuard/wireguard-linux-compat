@@ -45,8 +45,7 @@ enum {
 struct wg_device {
 	struct net_device *dev;
 	struct crypt_queue encrypt_queue, decrypt_queue;
-	struct sock __rcu *sock4, *sock6;
-	struct sock __rcu *sock4_2, *sock6_2;
+	struct sock __rcu *sock4, *sock6, *sock4_2, *sock6_2;
 	struct net __rcu *creating_net;
 	struct noise_static_identity static_identity;
 	struct workqueue_struct *handshake_receive_wq, *handshake_send_wq;
@@ -62,8 +61,7 @@ struct wg_device {
 	struct list_head device_list, peer_list;
 	unsigned int num_peers, device_update_gen;
 	u32 fwmark;
-	u16 incoming_port;
-	u16 incoming_port_2;
+	u16 incoming_port, incoming_port_2;
 };
 
 int wg_device_init(void);

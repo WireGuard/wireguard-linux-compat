@@ -270,41 +270,44 @@ static bool endpoint_eq(const struct endpoint *a, const struct endpoint *b)
 }
 
 void wg_socket_set_peer_endpoint(struct wg_peer *peer,
-				 const struct endpoint *endpoint)
+				 const struct endpoint *endpoint, u32 endpoint_id)
 {
 	/* First we check unlocked, in order to optimize, since it's pretty rare
 	 * that an endpoint will change. If we happen to be mid-write, and two
 	 * CPUs wind up writing the same thing or something slightly different,
 	 * it doesn't really matter much either.
 	 */
-	if (endpoint_eq(endpoint, &peer->endpoint))
+	struct endpoint *peer_endpoint = (endpoint_id == WGPEER_MAIN_ENDPOINT ? &peer->endpoint : &peer->endpoint_2);
+	rwlock_t *peer_endpoint_lock = (WGPEER_MAIN_ENDPOINT ? &peer->endpoint_lock : &peer->endpoint_lock_2);
+	if (endpoint_eq(endpoint, peer_endpoint))
 		return;
-	write_lock_bh(&peer->endpoint_lock);
+	write_lock_bh(peer_endpoint_lock);
 	if (endpoint->addr.sa_family == AF_INET) {
-		peer->endpoint.addr4 = endpoint->addr4;
-		peer->endpoint.src4 = endpoint->src4;
-		peer->endpoint.src_if4 = endpoint->src_if4;
+		peer_endpoint->addr4 = endpoint->addr4;
+		peer_endpoint->src4 = endpoint->src4;
+		peer_endpoint->src_if4 = endpoint->src_if4;
 	} else if (endpoint->addr.sa_family == AF_INET6) {
-		peer->endpoint.addr6 = endpoint->addr6;
-		peer->endpoint.src6 = endpoint->src6;
+		peer_endpoint->addr6 = endpoint->addr6;
+		peer_endpoint->src6 = endpoint->src6;
 	} else {
 		goto out;
 	}
-	dst_cache_reset(&peer->endpoint_cache);
+	struct dst_cache *peer_endpoint_cache = (endpoint_id == WGPEER_MAIN_ENDPOINT ? &peer->endpoint_cache : &peer->endpoint_cache_2);
+	dst_cache_reset(peer_endpoint_cache);
 out:
-	write_unlock_bh(&peer->endpoint_lock);
+	write_unlock_bh(peer_endpoint_lock);
 }
 
 void wg_socket_set_peer_endpoint_from_skb(struct wg_peer *peer,
-					  const struct sk_buff *skb)
+					  const struct sk_buff *skb) // TODO
 {
 	struct endpoint endpoint;
 
 	if (!wg_socket_endpoint_from_skb(&endpoint, skb))
-		wg_socket_set_peer_endpoint(peer, &endpoint);
+		wg_socket_set_peer_endpoint(peer, &endpoint, WGPEER_MAIN_ENDPOINT);
 }
 
-void wg_socket_clear_peer_endpoint_src(struct wg_peer *peer)
+void wg_socket_clear_peer_endpoint_src(struct wg_peer *peer) // TODO
 {
 	write_lock_bh(&peer->endpoint_lock);
 	memset(&peer->endpoint.src6, 0, sizeof(peer->endpoint.src6));
