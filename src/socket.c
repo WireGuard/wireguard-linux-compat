@@ -17,9 +17,12 @@
 #include <net/udp_tunnel.h>
 #include <net/ipv6.h>
 
+u32 __SEND_FROM_PORT = WGPEER_MAIN_ENDPOINT;
+u32 __SEND_TO_PORT = WGPEER_MAIN_ENDPOINT;
 static int send4(struct wg_device *wg, struct sk_buff *skb,
 		 struct endpoint *endpoint, u8 ds, struct dst_cache *cache)
 {
+	u32 endpoint_id = __SEND_FROM_PORT;
 	struct flowi4 fl = {
 		.saddr = endpoint->src4.s_addr,
 		.daddr = endpoint->addr4.sin_addr.s_addr,
@@ -36,7 +39,10 @@ static int send4(struct wg_device *wg, struct sk_buff *skb,
 	skb->mark = wg->fwmark;
 
 	rcu_read_lock_bh();
-	sock = rcu_dereference_bh(wg->sock4);
+	if (endpoint_id == WGPEER_MAIN_ENDPOINT)
+		sock = rcu_dereference_bh(wg->sock4);
+	else if (endpoint_id == WGPEER_SECONDARY_ENDPOINT)
+		sock = rcu_dereference_bh(wg->sock4_2);
 
 	if (unlikely(!sock)) {
 		ret = -ENONET;
@@ -97,6 +103,7 @@ out:
 static int send6(struct wg_device *wg, struct sk_buff *skb,
 		 struct endpoint *endpoint, u8 ds, struct dst_cache *cache)
 {
+	u32 endpoint_id = __SEND_FROM_PORT;
 #if IS_ENABLED(CONFIG_IPV6)
 	struct flowi6 fl = {
 		.saddr = endpoint->src6,
@@ -116,7 +123,10 @@ static int send6(struct wg_device *wg, struct sk_buff *skb,
 	skb->mark = wg->fwmark;
 
 	rcu_read_lock_bh();
-	sock = rcu_dereference_bh(wg->sock6);
+	if (endpoint_id == WGPEER_MAIN_ENDPOINT)
+		sock = rcu_dereference_bh(wg->sock6);
+	else if (endpoint_id == WGPEER_SECONDARY_ENDPOINT)
+		sock = rcu_dereference_bh(wg->sock6_2);
 
 	if (unlikely(!sock)) {
 		ret = -ENONET;
@@ -166,21 +176,35 @@ out:
 
 int wg_socket_send_skb_to_peer(struct wg_peer *peer, struct sk_buff *skb, u8 ds)
 {
+	u32 endpoint_id = __SEND_TO_PORT;
 	size_t skb_len = skb->len;
 	int ret = -EAFNOSUPPORT;
+	struct endpoint *peer_endpoint;
+	struct dst_cache *peer_endpoint_cache;
+	rwlock_t *peer_endpoint_lock;
 
-	read_lock_bh(&peer->endpoint_lock);
-	if (peer->endpoint.addr.sa_family == AF_INET)
-		ret = send4(peer->device, skb, &peer->endpoint, ds,
-			    &peer->endpoint_cache);
-	else if (peer->endpoint.addr.sa_family == AF_INET6)
-		ret = send6(peer->device, skb, &peer->endpoint, ds,
-			    &peer->endpoint_cache);
+	if (endpoint_id == WGPEER_MAIN_ENDPOINT) {
+		peer_endpoint = &peer->endpoint;
+		peer_endpoint_cache = &peer->endpoint_cache;
+		peer_endpoint_lock = &peer->endpoint_lock;
+	} else if (endpoint_id == WGPEER_SECONDARY_ENDPOINT) {
+		peer_endpoint = &peer->endpoint_2;
+		peer_endpoint_cache = &peer->endpoint_cache_2;
+		peer_endpoint_lock = &peer->endpoint_lock_2;
+	}
+
+	read_lock_bh(peer_endpoint_lock);
+	if (peer_endpoint->addr.sa_family == AF_INET)
+		ret = send4(peer->device, skb, peer_endpoint, ds,
+			    peer_endpoint_cache);
+	else if (peer_endpoint->addr.sa_family == AF_INET6)
+		ret = send6(peer->device, skb, peer_endpoint, ds,
+			    peer_endpoint_cache);
 	else
 		dev_kfree_skb(skb);
 	if (likely(!ret))
 		peer->tx_bytes += skb_len;
-	read_unlock_bh(&peer->endpoint_lock);
+	read_unlock_bh(peer_endpoint_lock);
 
 	return ret;
 }
@@ -268,7 +292,7 @@ static bool endpoint_eq(const struct endpoint *a, const struct endpoint *b)
 		ipv6_addr_equal(&a->src6, &b->src6)) ||
 	       unlikely(!a->addr.sa_family && !b->addr.sa_family);
 }
-
+// TODO: Simply check first empty slot
 void wg_socket_set_peer_endpoint(struct wg_peer *peer,
 				 const struct endpoint *endpoint, u32 endpoint_id)
 {
@@ -277,8 +301,20 @@ void wg_socket_set_peer_endpoint(struct wg_peer *peer,
 	 * CPUs wind up writing the same thing or something slightly different,
 	 * it doesn't really matter much either.
 	 */
-	struct endpoint *peer_endpoint = (endpoint_id == WGPEER_MAIN_ENDPOINT ? &peer->endpoint : &peer->endpoint_2);
-	rwlock_t *peer_endpoint_lock = (WGPEER_MAIN_ENDPOINT ? &peer->endpoint_lock : &peer->endpoint_lock_2);
+	struct endpoint *peer_endpoint;
+	struct dst_cache *peer_endpoint_cache;
+	rwlock_t *peer_endpoint_lock;
+	
+	if (endpoint_id == WGPEER_MAIN_ENDPOINT) {
+		peer_endpoint = &peer->endpoint;
+		peer_endpoint_cache = &peer->endpoint_cache;
+		peer_endpoint_lock = &peer->endpoint_lock;
+	} else if (endpoint_id == WGPEER_SECONDARY_ENDPOINT) {
+		peer_endpoint = &peer->endpoint_2;
+		peer_endpoint_cache = &peer->endpoint_cache_2;
+		peer_endpoint_lock = &peer->endpoint_lock_2;
+	}
+
 	if (endpoint_eq(endpoint, peer_endpoint))
 		return;
 	write_lock_bh(peer_endpoint_lock);
@@ -292,14 +328,14 @@ void wg_socket_set_peer_endpoint(struct wg_peer *peer,
 	} else {
 		goto out;
 	}
-	struct dst_cache *peer_endpoint_cache = (endpoint_id == WGPEER_MAIN_ENDPOINT ? &peer->endpoint_cache : &peer->endpoint_cache_2);
+
 	dst_cache_reset(peer_endpoint_cache);
 out:
 	write_unlock_bh(peer_endpoint_lock);
 }
 
 void wg_socket_set_peer_endpoint_from_skb(struct wg_peer *peer,
-					  const struct sk_buff *skb) // TODO
+					  const struct sk_buff *skb)
 {
 	struct endpoint endpoint;
 
@@ -307,12 +343,17 @@ void wg_socket_set_peer_endpoint_from_skb(struct wg_peer *peer,
 		wg_socket_set_peer_endpoint(peer, &endpoint, WGPEER_MAIN_ENDPOINT);
 }
 
-void wg_socket_clear_peer_endpoint_src(struct wg_peer *peer) // TODO
+void wg_socket_clear_peer_endpoint_src(struct wg_peer *peer)
 {
 	write_lock_bh(&peer->endpoint_lock);
 	memset(&peer->endpoint.src6, 0, sizeof(peer->endpoint.src6));
 	dst_cache_reset(&peer->endpoint_cache);
 	write_unlock_bh(&peer->endpoint_lock);
+	// What's the purpose of this?
+	write_lock_bh(&peer->endpoint_lock_2);
+	memset(&peer->endpoint_2.src6, 0, sizeof(peer->endpoint_2.src6));
+	dst_cache_reset(&peer->endpoint_cache_2);
+	write_unlock_bh(&peer->endpoint_lock_2);	
 }
 
 static int wg_receive(struct sock *sk, struct sk_buff *skb)
