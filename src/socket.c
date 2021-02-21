@@ -292,7 +292,21 @@ static bool endpoint_eq(const struct endpoint *a, const struct endpoint *b)
 		ipv6_addr_equal(&a->src6, &b->src6)) ||
 	       unlikely(!a->addr.sa_family && !b->addr.sa_family);
 }
-// TODO: Simply check first empty slot
+
+static int endpoint_cpy(const struct endpoint *from, struct endpoint *to) {
+	if (from->addr.sa_family == AF_INET) {
+		to->addr4 = from->addr4;
+		to->src4 = from->src4;
+		to->src_if4 = from->src_if4;
+	} else if (from->addr.sa_family == AF_INET6) {
+		to->addr6 = from->addr6;
+		to->src6 = from->src6;
+	} else {
+		return -EINVAL;
+	}
+	return 0;
+}
+
 void wg_socket_set_peer_endpoint(struct wg_peer *peer,
 				 const struct endpoint *endpoint, u32 endpoint_id)
 {
@@ -318,16 +332,9 @@ void wg_socket_set_peer_endpoint(struct wg_peer *peer,
 	if (endpoint_eq(endpoint, peer_endpoint))
 		return;
 	write_lock_bh(peer_endpoint_lock);
-	if (endpoint->addr.sa_family == AF_INET) {
-		peer_endpoint->addr4 = endpoint->addr4;
-		peer_endpoint->src4 = endpoint->src4;
-		peer_endpoint->src_if4 = endpoint->src_if4;
-	} else if (endpoint->addr.sa_family == AF_INET6) {
-		peer_endpoint->addr6 = endpoint->addr6;
-		peer_endpoint->src6 = endpoint->src6;
-	} else {
+
+	if (endpoint_cpy(endpoint, peer_endpoint) < 0)
 		goto out;
-	}
 
 	dst_cache_reset(peer_endpoint_cache);
 out:

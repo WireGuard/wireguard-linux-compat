@@ -329,7 +329,11 @@ static int wg_get_device_done(struct netlink_callback *cb)
 static int set_port(struct wg_device *wg, u16 port, u32 port_id)
 {
 	struct wg_peer *peer;
-	u16 *incoming_port = (port_id == WGDEVICE_MAIN_PORT ? &wg->incoming_port : &wg->incoming_port_2);
+	u16 *incoming_port;
+	if (port_id == WGDEVICE_MAIN_PORT)
+		incoming_port = &wg->incoming_port;
+	else if (port_id == WGDEVICE_SECONDARY_PORT)
+		incoming_port = &wg->incoming_port_2;
 	if (*incoming_port == port)
 		return 0;
 	list_for_each_entry(peer, &wg->peer_list, peer_list)
