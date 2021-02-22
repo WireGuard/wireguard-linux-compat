@@ -39,10 +39,13 @@ static int send4(struct wg_device *wg, struct sk_buff *skb,
 	skb->mark = wg->fwmark;
 
 	rcu_read_lock_bh();
-	if (endpoint_id == WGPEER_MAIN_ENDPOINT)
+	if (endpoint_id == WGPEER_MAIN_ENDPOINT) {
 		sock = rcu_dereference_bh(wg->sock4);
-	else if (endpoint_id == WGPEER_SECONDARY_ENDPOINT)
+	} else if (endpoint_id == WGPEER_SECONDARY_ENDPOINT) {
 		sock = rcu_dereference_bh(wg->sock4_2);
+	} else if (endpoint_id == WGPEER_RANDOM_ENDPOINT) {
+		// TODO
+	}
 
 	if (unlikely(!sock)) {
 		ret = -ENONET;
@@ -123,10 +126,13 @@ static int send6(struct wg_device *wg, struct sk_buff *skb,
 	skb->mark = wg->fwmark;
 
 	rcu_read_lock_bh();
-	if (endpoint_id == WGPEER_MAIN_ENDPOINT)
+	if (endpoint_id == WGPEER_MAIN_ENDPOINT) {
 		sock = rcu_dereference_bh(wg->sock6);
-	else if (endpoint_id == WGPEER_SECONDARY_ENDPOINT)
+	} else if (endpoint_id == WGPEER_SECONDARY_ENDPOINT) {
 		sock = rcu_dereference_bh(wg->sock6_2);
+	} else if (endpoint_id == WGPEER_RANDOM_ENDPOINT) {
+		// TODO
+	}
 
 	if (unlikely(!sock)) {
 		ret = -ENONET;
@@ -191,6 +197,8 @@ int wg_socket_send_skb_to_peer(struct wg_peer *peer, struct sk_buff *skb, u8 ds)
 		peer_endpoint = &peer->endpoint_2;
 		peer_endpoint_cache = &peer->endpoint_cache_2;
 		peer_endpoint_lock = &peer->endpoint_lock_2;
+	} else if (endpoint_id == WGPEER_RANDOM_ENDPOINT) {
+		// TODO
 	}
 
 	read_lock_bh(peer_endpoint_lock);
@@ -292,8 +300,28 @@ static bool endpoint_eq(const struct endpoint *a, const struct endpoint *b)
 		ipv6_addr_equal(&a->src6, &b->src6)) ||
 	       unlikely(!a->addr.sa_family && !b->addr.sa_family);
 }
+// This only works for so long we only deal with ports
+static bool endpoint_almost_eq(const struct endpoint *a, const struct endpoint *b)
+{
+	return (a->addr.sa_family == AF_INET && b->addr.sa_family == AF_INET &&
+		a->addr4.sin_port == b->addr4.sin_port &&
+		a->addr4.sin_addr.s_addr == b->addr4.sin_addr.s_addr &&
+		(!a->src4.s_addr || !b->src4.s_addr ||
+		 a->src4.s_addr == b->src4.s_addr) &&
+		(!a->src_if4 || !b->src_if4 || a->src_if4 == b->src_if4)) ||
+	       (a->addr.sa_family == AF_INET6 &&
+		b->addr.sa_family == AF_INET6 &&
+		a->addr6.sin6_port == b->addr6.sin6_port &&
+		ipv6_addr_equal(&a->addr6.sin6_addr, &b->addr6.sin6_addr) && // Change this
+		a->addr6.sin6_scope_id == b->addr6.sin6_scope_id && // and this
+		ipv6_addr_equal(&a->src6, &b->src6)) ||
+	       unlikely(!a->addr.sa_family && !b->addr.sa_family);
+}
 
-static int endpoint_cpy(const struct endpoint *from, struct endpoint *to) {
+void endpoint_copy(const struct endpoint *from, struct endpoint *to,
+				struct dst_cache *to_cache, rwlock_t *to_lock)
+{
+	write_lock_bh(to_lock);
 	if (from->addr.sa_family == AF_INET) {
 		to->addr4 = from->addr4;
 		to->src4 = from->src4;
@@ -302,43 +330,44 @@ static int endpoint_cpy(const struct endpoint *from, struct endpoint *to) {
 		to->addr6 = from->addr6;
 		to->src6 = from->src6;
 	} else {
-		return -EINVAL;
+		goto out;
 	}
-	return 0;
+	dst_cache_reset(to_cache);
+out:
+	write_unlock_bh(to_lock);
+}
+
+bool endpoint_empty(const struct endpoint *a)
+{
+	return !(a->addr.sa_family == AF_INET || a->addr.sa_family == AF_INET6);
 }
 
 void wg_socket_set_peer_endpoint(struct wg_peer *peer,
-				 const struct endpoint *endpoint, u32 endpoint_id)
+				 const struct endpoint *endpoint)
 {
 	/* First we check unlocked, in order to optimize, since it's pretty rare
 	 * that an endpoint will change. If we happen to be mid-write, and two
 	 * CPUs wind up writing the same thing or something slightly different,
 	 * it doesn't really matter much either.
 	 */
-	struct endpoint *peer_endpoint;
-	struct dst_cache *peer_endpoint_cache;
-	rwlock_t *peer_endpoint_lock;
-	
-	if (endpoint_id == WGPEER_MAIN_ENDPOINT) {
-		peer_endpoint = &peer->endpoint;
-		peer_endpoint_cache = &peer->endpoint_cache;
-		peer_endpoint_lock = &peer->endpoint_lock;
-	} else if (endpoint_id == WGPEER_SECONDARY_ENDPOINT) {
-		peer_endpoint = &peer->endpoint_2;
-		peer_endpoint_cache = &peer->endpoint_cache_2;
-		peer_endpoint_lock = &peer->endpoint_lock_2;
-	}
-
-	if (endpoint_eq(endpoint, peer_endpoint))
+	if (endpoint_eq(endpoint, &peer->endpoint) ||
+		endpoint_eq(endpoint, &peer->endpoint_2))
 		return;
-	write_lock_bh(peer_endpoint_lock);
 
-	if (endpoint_cpy(endpoint, peer_endpoint) < 0)
-		goto out;
-
-	dst_cache_reset(peer_endpoint_cache);
-out:
-	write_unlock_bh(peer_endpoint_lock);
+	if (endpoint_empty(&peer->endpoint) ||
+		endpoint_almost_eq(endpoint, &peer->endpoint)) {
+		endpoint_copy(endpoint, &peer->endpoint,
+					 &peer->endpoint_cache, &peer->endpoint_lock);
+	} else if (endpoint_empty(&peer->endpoint_2) ||
+			   endpoint_almost_eq(endpoint, &peer->endpoint_2)) {
+		endpoint_copy(endpoint, &peer->endpoint_2,
+			 &peer->endpoint_cache_2, &peer->endpoint_lock_2);
+	} else {
+		endpoint_copy(&peer->endpoint, &peer->endpoint_2,
+					 &peer->endpoint_cache_2, &peer->endpoint_lock_2);
+		endpoint_copy(endpoint, &peer->endpoint,
+					 &peer->endpoint_cache, &peer->endpoint_lock);
+	}
 }
 
 void wg_socket_set_peer_endpoint_from_skb(struct wg_peer *peer,
@@ -347,7 +376,7 @@ void wg_socket_set_peer_endpoint_from_skb(struct wg_peer *peer,
 	struct endpoint endpoint;
 
 	if (!wg_socket_endpoint_from_skb(&endpoint, skb))
-		wg_socket_set_peer_endpoint(peer, &endpoint, WGPEER_MAIN_ENDPOINT);
+		wg_socket_set_peer_endpoint(peer, &endpoint);
 }
 
 void wg_socket_clear_peer_endpoint_src(struct wg_peer *peer)
@@ -356,7 +385,7 @@ void wg_socket_clear_peer_endpoint_src(struct wg_peer *peer)
 	memset(&peer->endpoint.src6, 0, sizeof(peer->endpoint.src6));
 	dst_cache_reset(&peer->endpoint_cache);
 	write_unlock_bh(&peer->endpoint_lock);
-	// What's the purpose of this?
+
 	write_lock_bh(&peer->endpoint_lock_2);
 	memset(&peer->endpoint_2.src6, 0, sizeof(peer->endpoint_2.src6));
 	dst_cache_reset(&peer->endpoint_cache_2);

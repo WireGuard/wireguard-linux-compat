@@ -349,7 +349,7 @@ static void wg_packet_consume_data_done(struct wg_peer *peer,
 	unsigned int len, len_before_trim;
 	struct wg_peer *routed_peer;
 
-	wg_socket_set_peer_endpoint(peer, endpoint, WGPEER_MAIN_ENDPOINT);
+	wg_socket_set_peer_endpoint(peer, endpoint);
 
 	if (unlikely(wg_noise_received_with_keypair(&peer->keypairs,
 						    PACKET_CB(skb)->keypair))) {

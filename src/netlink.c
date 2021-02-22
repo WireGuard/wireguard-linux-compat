@@ -463,7 +463,7 @@ static int set_peer(struct wg_device *wg, struct nlattr **attrs)
 			struct endpoint endpoint = { { { 0 } } };
 
 			memcpy(&endpoint.addr, addr, len);
-			wg_socket_set_peer_endpoint(peer, &endpoint, WGPEER_MAIN_ENDPOINT);
+			wg_socket_set_peer_endpoint(peer, &endpoint);
 		}
 	}
 
@@ -478,7 +478,7 @@ static int set_peer(struct wg_device *wg, struct nlattr **attrs)
 			struct endpoint endpoint = { { { 0 } } };
 
 			memcpy(&endpoint.addr, addr, len);
-			wg_socket_set_peer_endpoint(peer, &endpoint, WGPEER_SECONDARY_ENDPOINT);
+			wg_socket_set_peer_endpoint(peer, &endpoint);
 		}
 	}
 
