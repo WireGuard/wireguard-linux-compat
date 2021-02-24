@@ -33,6 +33,7 @@ static int send4(struct wg_device *wg, struct sk_buff *skb,
 	struct rtable *rt = NULL;
 	struct sock *sock;
 	int ret = 0;
+	static int cur = 0;
 
 	skb_mark_not_on_list(skb);
 	skb->dev = wg->dev;
@@ -43,7 +44,7 @@ static int send4(struct wg_device *wg, struct sk_buff *skb,
 	} else if (endpoint_id == WGPEER_SECONDARY_ENDPOINT) {
 		sock = rcu_dereference_bh(wg->sock4_2);
 	} else if (endpoint_id == WGPEER_RANDOM_ENDPOINT) {
-		if (ktime_get() & 1)
+		if (cur ^= 1)
 			sock = rcu_dereference_bh(wg->sock4);
 		else
 			sock = rcu_dereference_bh(wg->sock4_2);
