@@ -28,12 +28,14 @@
  *    WGDEVICE_A_PRIVATE_KEY: NLA_EXACT_LEN, len WG_KEY_LEN
  *    WGDEVICE_A_PUBLIC_KEY: NLA_EXACT_LEN, len WG_KEY_LEN
  *    WGDEVICE_A_LISTEN_PORT: NLA_U16
+ *    WGDEVICE_A_LISTEN_PORT_2: NLA_U16
  *    WGDEVICE_A_FWMARK: NLA_U32
  *    WGDEVICE_A_PEERS: NLA_NESTED
  *        0: NLA_NESTED
  *            WGPEER_A_PUBLIC_KEY: NLA_EXACT_LEN, len WG_KEY_LEN
  *            WGPEER_A_PRESHARED_KEY: NLA_EXACT_LEN, len WG_KEY_LEN
  *            WGPEER_A_ENDPOINT: NLA_MIN_LEN(struct sockaddr), struct sockaddr_in or struct sockaddr_in6
+ *            WGPEER_A_ENDPOINT_2: NLA_MIN_LEN(struct sockaddr), struct sockaddr_in or struct sockaddr_in6
  *            WGPEER_A_PERSISTENT_KEEPALIVE_INTERVAL: NLA_U16
  *            WGPEER_A_LAST_HANDSHAKE_TIME: NLA_EXACT_LEN, struct __kernel_timespec
  *            WGPEER_A_RX_BYTES: NLA_U64
@@ -49,11 +51,9 @@
  *                    ...
  *                ...
  *            WGPEER_A_PROTOCOL_VERSION: NLA_U32
- *            WGPEER_A_ENDPOINT: NLA_MIN_LEN(struct sockaddr), struct sockaddr_in or struct sockaddr_in6
  *        0: NLA_NESTED
  *            ...
  *        ...
- *    WGDEVICE_A_LISTEN_PORT_2: NLA_U16
  *
  * It is possible that all of the allowed IPs of a single peer will not
  * fit within a single netlink message. In that case, the same peer will
@@ -84,6 +84,7 @@
  *                      peers should be removed prior to adding the list below.
  *    WGDEVICE_A_PRIVATE_KEY: len WG_KEY_LEN, all zeros to remove
  *    WGDEVICE_A_LISTEN_PORT: NLA_U16, 0 to choose randomly
+ *    WGDEVICE_A_LISTEN_PORT_2: NLA_U16, 0 to choose randomly
  *    WGDEVICE_A_FWMARK: NLA_U32, 0 to disable
  *    WGDEVICE_A_PEERS: NLA_NESTED
  *        0: NLA_NESTED
@@ -97,6 +98,7 @@
  *                            peer should only be set if it already exists.
  *            WGPEER_A_PRESHARED_KEY: len WG_KEY_LEN, all zeros to remove
  *            WGPEER_A_ENDPOINT: struct sockaddr_in or struct sockaddr_in6
+ *            WGPEER_A_ENDPOINT_2: struct sockaddr_in or struct sockaddr_in6
  *            WGPEER_A_PERSISTENT_KEEPALIVE_INTERVAL: NLA_U16, 0 to disable
  *            WGPEER_A_ALLOWEDIPS: NLA_NESTED
  *                0: NLA_NESTED
@@ -113,11 +115,9 @@
  *                                       most recent protocol will be used when
  *                                       this is unset. Otherwise, must be set
  *                                       to 1.
- *            WGPEER_A_ENDPOINT: NLA_MIN_LEN(struct sockaddr), struct sockaddr_in or struct sockaddr_in6
  *        0: NLA_NESTED
  *            ...
  *        ...
- *    WGDEVICE_A_LISTEN_PORT_2: NLA_U16, 0 to choose randomlys
  *
  * It is possible that the amount of configuration data exceeds that of
  * the maximum message length accepted by the kernel. In that case, several
@@ -159,9 +159,9 @@ enum wgdevice_attribute {
 	WGDEVICE_A_PUBLIC_KEY,
 	WGDEVICE_A_FLAGS,
 	WGDEVICE_A_LISTEN_PORT,
+	WGDEVICE_A_LISTEN_PORT_2,
 	WGDEVICE_A_FWMARK,
 	WGDEVICE_A_PEERS,
-	WGDEVICE_A_LISTEN_PORT_2,
 	__WGDEVICE_A_LAST
 };
 #define WGDEVICE_A_MAX (__WGDEVICE_A_LAST - 1)
@@ -179,13 +179,13 @@ enum wgpeer_attribute {
 	WGPEER_A_PRESHARED_KEY,
 	WGPEER_A_FLAGS,
 	WGPEER_A_ENDPOINT,
+	WGPEER_A_ENDPOINT_2,
 	WGPEER_A_PERSISTENT_KEEPALIVE_INTERVAL,
 	WGPEER_A_LAST_HANDSHAKE_TIME,
 	WGPEER_A_RX_BYTES,
 	WGPEER_A_TX_BYTES,
 	WGPEER_A_ALLOWEDIPS,
 	WGPEER_A_PROTOCOL_VERSION,
-	WGPEER_A_ENDPOINT_2,
 	__WGPEER_A_LAST
 };
 #define WGPEER_A_MAX (__WGPEER_A_LAST - 1)

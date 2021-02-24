@@ -39,16 +39,17 @@ static int send4(struct wg_device *wg, struct sk_buff *skb,
 	skb->dev = wg->dev;
 	skb->mark = wg->fwmark;
 	rcu_read_lock_bh();
-	if (endpoint_id == WGPEER_MAIN_ENDPOINT) {
-		sock = rcu_dereference_bh(wg->sock4);
-	} else if (endpoint_id == WGPEER_SECONDARY_ENDPOINT) {
-		sock = rcu_dereference_bh(wg->sock4_2);
-	} else if (endpoint_id == WGPEER_RANDOM_ENDPOINT) {
+
+	if (endpoint_id == WGPEER_RANDOM_ENDPOINT) {
 		if (cur ^= 1)
-			sock = rcu_dereference_bh(wg->sock4);
+			endpoint_id = WGPEER_MAIN_ENDPOINT;
 		else
-			sock = rcu_dereference_bh(wg->sock4_2);
+			endpoint_id = WGPEER_SECONDARY_ENDPOINT;
 	}
+	if (endpoint_id == WGPEER_MAIN_ENDPOINT)
+		sock = rcu_dereference_bh(wg->sock4);
+	else if (endpoint_id == WGPEER_SECONDARY_ENDPOINT)
+		sock = rcu_dereference_bh(wg->sock4_2);
 
 	if (unlikely(!sock)) {
 		ret = -ENONET;
@@ -123,22 +124,23 @@ static int send6(struct wg_device *wg, struct sk_buff *skb,
 	struct dst_entry *dst = NULL;
 	struct sock *sock;
 	int ret = 0;
+	static int cur = 0;
 
 	skb_mark_not_on_list(skb);
 	skb->dev = wg->dev;
 	skb->mark = wg->fwmark;
-
 	rcu_read_lock_bh();
-	if (endpoint_id == WGPEER_MAIN_ENDPOINT) {
-		sock = rcu_dereference_bh(wg->sock6);
-	} else if (endpoint_id == WGPEER_SECONDARY_ENDPOINT) {
-		sock = rcu_dereference_bh(wg->sock6_2);
-	} else if (endpoint_id == WGPEER_RANDOM_ENDPOINT) {
-		if (ktime_get() & 1)
-			sock = rcu_dereference_bh(wg->sock6);
+
+	if (endpoint_id == WGPEER_RANDOM_ENDPOINT) {
+		if (cur ^= 1)
+			endpoint_id = WGPEER_MAIN_ENDPOINT;
 		else
-			sock = rcu_dereference_bh(wg->sock6_2);
+			endpoint_id = WGPEER_SECONDARY_ENDPOINT;
 	}
+	if (endpoint_id == WGPEER_MAIN_ENDPOINT)
+		sock = rcu_dereference_bh(wg->sock6);
+	else if (endpoint_id == WGPEER_SECONDARY_ENDPOINT)
+		sock = rcu_dereference_bh(wg->sock6_2);
 
 	if (unlikely(!sock)) {
 		ret = -ENONET;
@@ -194,7 +196,14 @@ int wg_socket_send_skb_to_peer(struct wg_peer *peer, struct sk_buff *skb, u8 ds)
 	struct endpoint *peer_endpoint;
 	struct dst_cache *peer_endpoint_cache;
 	rwlock_t *peer_endpoint_lock;
+	static int cur = 0;
 
+	if (endpoint_id == WGPEER_RANDOM_ENDPOINT) {
+		if (cur ^= 1)
+			endpoint_id = WGPEER_MAIN_ENDPOINT;
+		else
+			endpoint_id = WGPEER_SECONDARY_ENDPOINT;
+	}
 	if (endpoint_id == WGPEER_MAIN_ENDPOINT) {
 		peer_endpoint = &peer->endpoint;
 		peer_endpoint_cache = &peer->endpoint_cache;
@@ -203,8 +212,6 @@ int wg_socket_send_skb_to_peer(struct wg_peer *peer, struct sk_buff *skb, u8 ds)
 		peer_endpoint = &peer->endpoint_2;
 		peer_endpoint_cache = &peer->endpoint_cache_2;
 		peer_endpoint_lock = &peer->endpoint_lock_2;
-	} else if (endpoint_id == WGPEER_RANDOM_ENDPOINT) {
-		// TODO
 	}
 
 	read_lock_bh(peer_endpoint_lock);
