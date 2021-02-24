@@ -17,7 +17,7 @@
 #include <net/udp_tunnel.h>
 #include <net/ipv6.h>
 
-u32 __SEND_FROM_PORT = WGPEER_MAIN_ENDPOINT;
+u32 __SEND_FROM_PORT = WGPEER_RANDOM_ENDPOINT;
 u32 __SEND_TO_PORT = WGPEER_MAIN_ENDPOINT;
 static int send4(struct wg_device *wg, struct sk_buff *skb,
 		 struct endpoint *endpoint, u8 ds, struct dst_cache *cache)
@@ -37,14 +37,16 @@ static int send4(struct wg_device *wg, struct sk_buff *skb,
 	skb_mark_not_on_list(skb);
 	skb->dev = wg->dev;
 	skb->mark = wg->fwmark;
-
 	rcu_read_lock_bh();
 	if (endpoint_id == WGPEER_MAIN_ENDPOINT) {
 		sock = rcu_dereference_bh(wg->sock4);
 	} else if (endpoint_id == WGPEER_SECONDARY_ENDPOINT) {
 		sock = rcu_dereference_bh(wg->sock4_2);
 	} else if (endpoint_id == WGPEER_RANDOM_ENDPOINT) {
-		// TODO
+		if (ktime_get() & 1)
+			sock = rcu_dereference_bh(wg->sock4);
+		else
+			sock = rcu_dereference_bh(wg->sock4_2);
 	}
 
 	if (unlikely(!sock)) {
@@ -131,7 +133,10 @@ static int send6(struct wg_device *wg, struct sk_buff *skb,
 	} else if (endpoint_id == WGPEER_SECONDARY_ENDPOINT) {
 		sock = rcu_dereference_bh(wg->sock6_2);
 	} else if (endpoint_id == WGPEER_RANDOM_ENDPOINT) {
-		// TODO
+		if (ktime_get() & 1)
+			sock = rcu_dereference_bh(wg->sock6);
+		else
+			sock = rcu_dereference_bh(wg->sock6_2);
 	}
 
 	if (unlikely(!sock)) {
