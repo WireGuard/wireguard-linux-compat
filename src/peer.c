@@ -23,6 +23,7 @@ struct wg_peer *wg_peer_create(struct wg_device *wg,
 {
 	struct wg_peer *peer;
 	int ret = -ENOMEM;
+	int e_id;
 
 	lockdep_assert_held(&wg->device_update_lock);
 
@@ -32,10 +33,9 @@ struct wg_peer *wg_peer_create(struct wg_device *wg,
 	peer = kzalloc(sizeof(*peer), GFP_KERNEL);
 	if (unlikely(!peer))
 		return ERR_PTR(ret);
-	if (dst_cache_init(&peer->endpoint_cache, GFP_KERNEL))
-		goto err;
-	if (dst_cache_init(&peer->endpoint_cache_2, GFP_KERNEL))
-		goto err;
+	for (e_id = 0; e_id < WGPEER_MAX_ENDPOINTS; ++e_id)
+		if (dst_cache_init(&peer->endpoint_cache[e_id], GFP_KERNEL))
+			goto err;
 
 	peer->device = wg;
 	wg_noise_handshake_init(&peer->handshake, &wg->static_identity,
@@ -50,8 +50,8 @@ struct wg_peer *wg_peer_create(struct wg_device *wg,
 	INIT_WORK(&peer->transmit_packet_work, wg_packet_tx_worker);
 	wg_prev_queue_init(&peer->tx_queue);
 	wg_prev_queue_init(&peer->rx_queue);
-	rwlock_init(&peer->endpoint_lock);
-	rwlock_init(&peer->endpoint_lock_2);
+	for (e_id = 0; e_id < WGPEER_MAX_ENDPOINTS; ++e_id)
+		rwlock_init(&peer->endpoint_lock[e_id]);
 	kref_init(&peer->refcount);
 	skb_queue_head_init(&peer->staged_packet_queue);
 	wg_noise_reset_last_sent_handshake(&peer->last_sent_handshake);
@@ -189,9 +189,10 @@ void wg_peer_remove_all(struct wg_device *wg)
 static void rcu_release(struct rcu_head *rcu)
 {
 	struct wg_peer *peer = container_of(rcu, struct wg_peer, rcu);
+	int e_id;
 
-	dst_cache_destroy(&peer->endpoint_cache);
-	dst_cache_destroy(&peer->endpoint_cache_2);
+	for (e_id = 0; e_id < WGPEER_MAX_ENDPOINTS; ++e_id)
+		dst_cache_destroy(&peer->endpoint_cache[e_id]);
 	WARN_ON(wg_prev_queue_dequeue(&peer->tx_queue) || peer->tx_queue.peeked);
 	WARN_ON(wg_prev_queue_dequeue(&peer->rx_queue) || peer->rx_queue.peeked);
 
@@ -207,7 +208,7 @@ static void kref_release(struct kref *refcount)
 
 	pr_debug("%s: Peer %llu (%pISpfsc) destroyed\n",
 		 peer->device->dev->name, peer->internal_id,
-		 &peer->endpoint.addr);
+		 &peer->endpoint[0].addr);
 
 	/* Remove ourself from dynamic runtime lookup structures, now that the
 	 * last reference is gone.

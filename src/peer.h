@@ -37,6 +37,8 @@ struct endpoint {
 enum {
 	WGPEER_MAIN_ENDPOINT,
 	WGPEER_SECONDARY_ENDPOINT,
+	WGPEER_TERTIARY_ENDPOINT,
+	WGPEER_MAX_ENDPOINTS,
 	WGPEER_RANDOM_ENDPOINT
 };
 
@@ -47,9 +49,9 @@ struct wg_peer {
 	int serial_work_cpu;
 	bool is_dead;
 	struct noise_keypairs keypairs;
-	struct endpoint endpoint, endpoint_2;
-	struct dst_cache endpoint_cache, endpoint_cache_2;
-	rwlock_t endpoint_lock, endpoint_lock_2;
+	struct endpoint endpoint[WGPEER_MAX_ENDPOINTS];
+	struct dst_cache endpoint_cache[WGPEER_MAX_ENDPOINTS];
+	rwlock_t endpoint_lock[WGPEER_MAX_ENDPOINTS];
 	struct noise_handshake handshake;
 	atomic64_t last_sent_handshake;
 	struct work_struct transmit_handshake_work, clear_peer_work, transmit_packet_work;
@@ -70,6 +72,7 @@ struct wg_peer {
 	struct list_head allowedips_list;
 	struct napi_struct napi;
 	u64 internal_id;
+	u64 num_endpoints;
 };
 
 struct wg_peer *wg_peer_create(struct wg_device *wg,

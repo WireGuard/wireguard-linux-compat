@@ -25,6 +25,7 @@ static const struct nla_policy device_policy[WGDEVICE_A_MAX + 1] = {
 	[WGDEVICE_A_FLAGS]		= { .type = NLA_U32 },
 	[WGDEVICE_A_LISTEN_PORT]	= { .type = NLA_U16 },
 	[WGDEVICE_A_LISTEN_PORT_2]	= { .type = NLA_U16 },
+	[WGDEVICE_A_LISTEN_PORT_3]	= { .type = NLA_U16 },
 	[WGDEVICE_A_FWMARK]		= { .type = NLA_U32 },
 	[WGDEVICE_A_PEERS]		= { .type = NLA_NESTED }
 };
@@ -35,6 +36,7 @@ static const struct nla_policy peer_policy[WGPEER_A_MAX + 1] = {
 	[WGPEER_A_FLAGS]				= { .type = NLA_U32 },
 	[WGPEER_A_ENDPOINT]				= NLA_POLICY_MIN_LEN(sizeof(struct sockaddr)),
 	[WGPEER_A_ENDPOINT_2]				= NLA_POLICY_MIN_LEN(sizeof(struct sockaddr)),
+	[WGPEER_A_ENDPOINT_3]				= NLA_POLICY_MIN_LEN(sizeof(struct sockaddr)),
 	[WGPEER_A_PERSISTENT_KEEPALIVE_INTERVAL]	= { .type = NLA_U16 },
 	[WGPEER_A_LAST_HANDSHAKE_TIME]			= NLA_POLICY_EXACT_LEN(sizeof(struct __kernel_timespec)),
 	[WGPEER_A_RX_BYTES]				= { .type = NLA_U64 },
@@ -109,6 +111,7 @@ get_peer(struct wg_peer *peer, struct sk_buff *skb, struct dump_ctx *ctx)
 	struct nlattr *allowedips_nest, *peer_nest = nla_nest_start(skb, 0);
 	struct allowedips_node *allowedips_node = ctx->next_allowedip;
 	bool fail;
+	int e_id;
 
 	if (!peer_nest)
 		return -EMSGSIZE;
@@ -145,31 +148,21 @@ get_peer(struct wg_peer *peer, struct sk_buff *skb, struct dump_ctx *ctx)
 		    nla_put_u32(skb, WGPEER_A_PROTOCOL_VERSION, 1))
 			goto err;
 
-		read_lock_bh(&peer->endpoint_lock);
-		if (peer->endpoint.addr.sa_family == AF_INET)
-			fail = nla_put(skb, WGPEER_A_ENDPOINT,
-				       sizeof(peer->endpoint.addr4),
-				       &peer->endpoint.addr4);
-		else if (peer->endpoint.addr.sa_family == AF_INET6)
-			fail = nla_put(skb, WGPEER_A_ENDPOINT,
-				       sizeof(peer->endpoint.addr6),
-				       &peer->endpoint.addr6);
-		read_unlock_bh(&peer->endpoint_lock);
-		if (fail)
-			goto err;
+		for (e_id = 0; e_id < WGPEER_MAX_ENDPOINTS; ++e_id) {
+			read_lock_bh(&peer->endpoint_lock[e_id]);
+			if (peer->endpoint[e_id].addr.sa_family == AF_INET)
+				fail = nla_put(skb, WGPEER_A_ENDPOINT + e_id,
+					       sizeof(peer->endpoint[e_id].addr4),
+					       &peer->endpoint[e_id].addr4);
+			else if (peer->endpoint[e_id].addr.sa_family == AF_INET6)
+				fail = nla_put(skb, WGPEER_A_ENDPOINT + e_id,
+					       sizeof(peer->endpoint[e_id].addr6),
+					       &peer->endpoint[e_id].addr6);
+			read_unlock_bh(&peer->endpoint_lock[e_id]);
+			if (fail)
+				goto err;
+		}
 
-		read_lock_bh(&peer->endpoint_lock_2);
-		if (peer->endpoint_2.addr.sa_family == AF_INET)
-			fail = nla_put(skb, WGPEER_A_ENDPOINT_2,
-				       sizeof(peer->endpoint_2.addr4),
-				       &peer->endpoint_2.addr4);
-		else if (peer->endpoint_2.addr.sa_family == AF_INET6)
-			fail = nla_put(skb, WGPEER_A_ENDPOINT_2,
-				       sizeof(peer->endpoint_2.addr6),
-				       &peer->endpoint_2.addr6);
-		read_unlock_bh(&peer->endpoint_lock_2);
-		if (fail)
-			goto err;
 		allowedips_node =
 			list_first_entry_or_null(&peer->allowedips_list,
 					struct allowedips_node, peer_list);
@@ -229,6 +222,7 @@ static int wg_get_device_dump(struct sk_buff *skb, struct netlink_callback *cb)
 	int ret = -EMSGSIZE;
 	bool done = true;
 	void *hdr;
+	int p_id;
 
 	rtnl_lock();
 	mutex_lock(&wg->device_update_lock);
@@ -242,11 +236,11 @@ static int wg_get_device_dump(struct sk_buff *skb, struct netlink_callback *cb)
 	genl_dump_check_consistent(cb, hdr);
 
 	if (!ctx->next_peer) {
-		if (nla_put_u16(skb, WGDEVICE_A_LISTEN_PORT,
-				wg->incoming_port) ||
-			nla_put_u16(skb, WGDEVICE_A_LISTEN_PORT_2,
-				wg->incoming_port_2) ||
-		    nla_put_u32(skb, WGDEVICE_A_FWMARK, wg->fwmark) ||
+		for (p_id = 0; p_id < WGDEVICE_MAX_PORTS; ++p_id)
+			if (nla_put_u16(skb, WGDEVICE_A_LISTEN_PORT + p_id,
+					wg->incoming_port[p_id]))
+				goto out;
+		if (nla_put_u32(skb, WGDEVICE_A_FWMARK, wg->fwmark) ||
 		    nla_put_u32(skb, WGDEVICE_A_IFINDEX, wg->dev->ifindex) ||
 		    nla_put_string(skb, WGDEVICE_A_IFNAME, wg->dev->name))
 			goto out;
@@ -326,14 +320,22 @@ static int wg_get_device_done(struct netlink_callback *cb)
 	return 0;
 }
 
-static int set_port(struct wg_device *wg, u16 port, u32 port_id)
+static int first_empty_port(struct wg_device *wg)
+{
+	int p_id;
+	for (p_id = 0; p_id < WGDEVICE_MAX_PORTS; ++p_id)
+		if (!wg->incoming_port[p_id])
+			return p_id;
+	return -1;
+}
+
+static int set_port(struct wg_device *wg, u16 port, int p_id)
 {
 	struct wg_peer *peer;
 	u16 *incoming_port;
-	if (port_id == WGDEVICE_MAIN_PORT)
-		incoming_port = &wg->incoming_port;
-	else if (port_id == WGDEVICE_SECONDARY_PORT)
-		incoming_port = &wg->incoming_port_2;
+	if (p_id < 0)
+		return -ENOSPC;
+	incoming_port = &wg->incoming_port[p_id];
 	if (*incoming_port == port)
 		return 0;
 	list_for_each_entry(peer, &wg->peer_list, peer_list)
@@ -342,7 +344,7 @@ static int set_port(struct wg_device *wg, u16 port, u32 port_id)
 		*incoming_port = port;
 		return 0;
 	}
-	return wg_socket_init(wg, port, port_id);
+	return wg_socket_init(wg, port, p_id);
 }
 
 static int set_allowedip(struct wg_peer *peer, struct nlattr **attrs)
@@ -379,6 +381,7 @@ static int set_peer(struct wg_device *wg, struct nlattr **attrs)
 	struct wg_peer *peer = NULL;
 	u32 flags = 0;
 	int ret;
+	int e_id;
 
 	ret = -EINVAL;
 	if (attrs[WGPEER_A_PUBLIC_KEY] &&
@@ -452,35 +455,21 @@ static int set_peer(struct wg_device *wg, struct nlattr **attrs)
 		up_write(&peer->handshake.lock);
 	}
 
-	if (attrs[WGPEER_A_ENDPOINT]) {
-		struct sockaddr *addr = nla_data(attrs[WGPEER_A_ENDPOINT]);
-		size_t len = nla_len(attrs[WGPEER_A_ENDPOINT]);
+	for (e_id = 0; e_id < WGPEER_MAX_ENDPOINTS; ++e_id)
+		if (attrs[WGPEER_A_ENDPOINT + e_id]) {
+			struct sockaddr *addr = nla_data(attrs[WGPEER_A_ENDPOINT + e_id]);
+			size_t len = nla_len(attrs[WGPEER_A_ENDPOINT + e_id]);
 
-		if ((len == sizeof(struct sockaddr_in) &&
-		     addr->sa_family == AF_INET) ||
-		    (len == sizeof(struct sockaddr_in6) &&
-		     addr->sa_family == AF_INET6)) {
-			struct endpoint endpoint = { { { 0 } } };
+			if ((len == sizeof(struct sockaddr_in) &&
+			     addr->sa_family == AF_INET) ||
+			    (len == sizeof(struct sockaddr_in6) &&
+			     addr->sa_family == AF_INET6)) {
+				struct endpoint endpoint = { { { 0 } } };
 
-			memcpy(&endpoint.addr, addr, len);
-			wg_socket_set_peer_endpoint(peer, &endpoint);
+				memcpy(&endpoint.addr, addr, len);
+				wg_socket_set_peer_endpoint(peer, &endpoint);
+			}
 		}
-	}
-
-	if (attrs[WGPEER_A_ENDPOINT_2]) {
-		struct sockaddr *addr = nla_data(attrs[WGPEER_A_ENDPOINT_2]);
-		size_t len = nla_len(attrs[WGPEER_A_ENDPOINT_2]);
-
-		if ((len == sizeof(struct sockaddr_in) &&
-		     addr->sa_family == AF_INET) ||
-		    (len == sizeof(struct sockaddr_in6) &&
-		     addr->sa_family == AF_INET6)) {
-			struct endpoint endpoint = { { { 0 } } };
-
-			memcpy(&endpoint.addr, addr, len);
-			wg_socket_set_peer_endpoint(peer, &endpoint);
-		}
-	}
 
 	if (flags & WGPEER_F_REPLACE_ALLOWEDIPS)
 		wg_allowedips_remove_by_peer(&wg->peer_allowedips, peer,
@@ -530,6 +519,7 @@ static int wg_set_device(struct sk_buff *skb, struct genl_info *info)
 	struct wg_device *wg = lookup_interface(info->attrs, skb);
 	u32 flags = 0;
 	int ret;
+	int p_id;
 
 	if (IS_ERR(wg)) {
 		ret = PTR_ERR(wg);
@@ -565,19 +555,13 @@ static int wg_set_device(struct sk_buff *skb, struct genl_info *info)
 			wg_socket_clear_peer_endpoint_src(peer);
 	}
 
-	if (info->attrs[WGDEVICE_A_LISTEN_PORT]) {
-		ret = set_port(wg,
-			nla_get_u16(info->attrs[WGDEVICE_A_LISTEN_PORT]), WGDEVICE_MAIN_PORT);
-		if (ret)
-			goto out;
-	}
-
-	if (info->attrs[WGDEVICE_A_LISTEN_PORT_2]) {
-		ret = set_port(wg,
-			nla_get_u16(info->attrs[WGDEVICE_A_LISTEN_PORT_2]), WGDEVICE_SECONDARY_PORT);
-		if (ret)
-			goto out;
-	}
+	for (p_id = 0; p_id < WGDEVICE_MAX_PORTS; ++p_id)
+		if (info->attrs[WGDEVICE_A_LISTEN_PORT + p_id]) {
+			ret = set_port(wg,
+				nla_get_u16(info->attrs[WGDEVICE_A_LISTEN_PORT + p_id]), first_empty_port(wg));
+			if (ret)
+				goto out;
+		}
 
 	if (flags & WGDEVICE_F_REPLACE_PEERS)
 		wg_peer_remove_all(wg);

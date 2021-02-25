@@ -158,7 +158,7 @@ static void wg_receive_handshake_packet(struct wg_device *wg,
 		wg_socket_set_peer_endpoint_from_skb(peer, skb);
 		net_dbg_ratelimited("%s: Receiving handshake initiation from peer %llu (%pISpfsc)\n",
 				    wg->dev->name, peer->internal_id,
-				    &peer->endpoint.addr);
+				    &peer->endpoint[0].addr);
 		wg_packet_send_handshake_response(peer);
 		break;
 	}
@@ -180,7 +180,7 @@ static void wg_receive_handshake_packet(struct wg_device *wg,
 		wg_socket_set_peer_endpoint_from_skb(peer, skb);
 		net_dbg_ratelimited("%s: Receiving handshake response from peer %llu (%pISpfsc)\n",
 				    wg->dev->name, peer->internal_id,
-				    &peer->endpoint.addr);
+				    &peer->endpoint[0].addr);
 		if (wg_noise_handshake_begin_session(&peer->handshake,
 						     &peer->keypairs)) {
 			wg_timers_session_derived(peer);
@@ -367,7 +367,7 @@ static void wg_packet_consume_data_done(struct wg_peer *peer,
 		update_rx_stats(peer, message_data_len(0));
 		net_dbg_ratelimited("%s: Receiving keepalive packet from peer %llu (%pISpfsc)\n",
 				    dev->name, peer->internal_id,
-				    &peer->endpoint.addr);
+				    &peer->endpoint[0].addr);
 		goto packet_processed;
 	}
 
@@ -426,19 +426,19 @@ static void wg_packet_consume_data_done(struct wg_peer *peer,
 dishonest_packet_peer:
 	net_dbg_skb_ratelimited("%s: Packet has unallowed src IP (%pISc) from peer %llu (%pISpfsc)\n",
 				dev->name, skb, peer->internal_id,
-				&peer->endpoint.addr);
+				&peer->endpoint[0].addr);
 	++dev->stats.rx_errors;
 	++dev->stats.rx_frame_errors;
 	goto packet_processed;
 dishonest_packet_type:
 	net_dbg_ratelimited("%s: Packet is neither ipv4 nor ipv6 from peer %llu (%pISpfsc)\n",
-			    dev->name, peer->internal_id, &peer->endpoint.addr);
+			    dev->name, peer->internal_id, &peer->endpoint[0].addr);
 	++dev->stats.rx_errors;
 	++dev->stats.rx_frame_errors;
 	goto packet_processed;
 dishonest_packet_size:
 	net_dbg_ratelimited("%s: Packet has incorrect size from peer %llu (%pISpfsc)\n",
-			    dev->name, peer->internal_id, &peer->endpoint.addr);
+			    dev->name, peer->internal_id, &peer->endpoint[0].addr);
 	++dev->stats.rx_errors;
 	++dev->stats.rx_length_errors;
 	goto packet_processed;

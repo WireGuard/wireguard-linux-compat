@@ -35,6 +35,7 @@ static int wg_open(struct net_device *dev)
 	struct wg_device *wg = netdev_priv(dev);
 	struct wg_peer *peer;
 	int ret;
+	int p_id;
 
 	if (dev_v4) {
 		/* At some point we might put this check near the ip_rt_send_
@@ -54,12 +55,11 @@ static int wg_open(struct net_device *dev)
 #endif
 
 	mutex_lock(&wg->device_update_lock);
-	ret = wg_socket_init(wg, wg->incoming_port, WGDEVICE_MAIN_PORT);
-	if (ret < 0)
-		goto out;
-	ret = wg_socket_init(wg, wg->incoming_port_2, WGDEVICE_SECONDARY_PORT);
-	if (ret < 0)
-		goto out;
+	for (p_id = 0; p_id < WGDEVICE_MAX_PORTS; ++p_id) {
+		ret = wg_socket_init(wg, wg->incoming_port[p_id], p_id);
+		if (ret < 0)
+			goto out;
+	}
 	list_for_each_entry(peer, &wg->peer_list, peer_list) {
 		wg_packet_send_staged_packets(peer);
 		if (peer->persistent_keepalive_interval)
@@ -109,6 +109,7 @@ static int wg_stop(struct net_device *dev)
 {
 	struct wg_device *wg = netdev_priv(dev);
 	struct wg_peer *peer;
+	int p_id;
 
 	mutex_lock(&wg->device_update_lock);
 	list_for_each_entry(peer, &wg->peer_list, peer_list) {
@@ -120,8 +121,8 @@ static int wg_stop(struct net_device *dev)
 	}
 	mutex_unlock(&wg->device_update_lock);
 	skb_queue_purge(&wg->incoming_handshakes);
-	wg_socket_reinit(wg, NULL, NULL, WGDEVICE_MAIN_PORT);
-	wg_socket_reinit(wg, NULL, NULL, WGDEVICE_SECONDARY_PORT);
+	for (p_id = 0; p_id < WGDEVICE_MAX_PORTS; ++p_id)
+		wg_socket_reinit(wg, NULL, NULL, p_id);
 	return 0;
 }
 
@@ -153,7 +154,7 @@ static netdev_tx_t wg_xmit(struct sk_buff *skb, struct net_device *dev)
 		goto err;
 	}
 
-	family = READ_ONCE(peer->endpoint.addr.sa_family);
+	family = READ_ONCE(peer->endpoint[0].addr.sa_family);
 	if (unlikely(family != AF_INET && family != AF_INET6)) {
 		ret = -EDESTADDRREQ;
 		net_dbg_ratelimited("%s: No valid endpoint has been configured or discovered for peer %llu\n",
@@ -233,15 +234,17 @@ static const struct net_device_ops netdev_ops = {
 static void wg_destruct(struct net_device *dev)
 {
 	struct wg_device *wg = netdev_priv(dev);
+	int p_id;
 
 	rtnl_lock();
 	list_del(&wg->device_list);
 	rtnl_unlock();
 	mutex_lock(&wg->device_update_lock);
 	rcu_assign_pointer(wg->creating_net, NULL);
-	wg->incoming_port = 0;
-	wg_socket_reinit(wg, NULL, NULL, WGDEVICE_MAIN_PORT);
-	wg_socket_reinit(wg, NULL, NULL, WGDEVICE_SECONDARY_PORT);
+	for (p_id = 0; p_id < WGDEVICE_MAX_PORTS; ++p_id) {
+		wg->incoming_port[p_id] = 0;
+		wg_socket_reinit(wg, NULL, NULL, p_id);
+	}
 	/* The final references are cleared in the below calls to destroy_workqueue. */
 	wg_peer_remove_all(wg);
 	destroy_workqueue(wg->handshake_receive_wq);

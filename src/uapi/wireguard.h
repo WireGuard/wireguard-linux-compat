@@ -29,6 +29,7 @@
  *    WGDEVICE_A_PUBLIC_KEY: NLA_EXACT_LEN, len WG_KEY_LEN
  *    WGDEVICE_A_LISTEN_PORT: NLA_U16
  *    WGDEVICE_A_LISTEN_PORT_2: NLA_U16
+ *    WGDEVICE_A_LISTEN_PORT_3: NLA_U16
  *    WGDEVICE_A_FWMARK: NLA_U32
  *    WGDEVICE_A_PEERS: NLA_NESTED
  *        0: NLA_NESTED
@@ -36,6 +37,7 @@
  *            WGPEER_A_PRESHARED_KEY: NLA_EXACT_LEN, len WG_KEY_LEN
  *            WGPEER_A_ENDPOINT: NLA_MIN_LEN(struct sockaddr), struct sockaddr_in or struct sockaddr_in6
  *            WGPEER_A_ENDPOINT_2: NLA_MIN_LEN(struct sockaddr), struct sockaddr_in or struct sockaddr_in6
+ *            WGPEER_A_ENDPOINT_3: NLA_MIN_LEN(struct sockaddr), struct sockaddr_in or struct sockaddr_in6
  *            WGPEER_A_PERSISTENT_KEEPALIVE_INTERVAL: NLA_U16
  *            WGPEER_A_LAST_HANDSHAKE_TIME: NLA_EXACT_LEN, struct __kernel_timespec
  *            WGPEER_A_RX_BYTES: NLA_U64
@@ -85,6 +87,7 @@
  *    WGDEVICE_A_PRIVATE_KEY: len WG_KEY_LEN, all zeros to remove
  *    WGDEVICE_A_LISTEN_PORT: NLA_U16, 0 to choose randomly
  *    WGDEVICE_A_LISTEN_PORT_2: NLA_U16, 0 to choose randomly
+ *    WGDEVICE_A_LISTEN_PORT_3: NLA_U16, 0 to choose randomly
  *    WGDEVICE_A_FWMARK: NLA_U32, 0 to disable
  *    WGDEVICE_A_PEERS: NLA_NESTED
  *        0: NLA_NESTED
@@ -99,6 +102,7 @@
  *            WGPEER_A_PRESHARED_KEY: len WG_KEY_LEN, all zeros to remove
  *            WGPEER_A_ENDPOINT: struct sockaddr_in or struct sockaddr_in6
  *            WGPEER_A_ENDPOINT_2: struct sockaddr_in or struct sockaddr_in6
+ *            WGPEER_A_ENDPOINT_3: struct sockaddr_in or struct sockaddr_in6
  *            WGPEER_A_PERSISTENT_KEEPALIVE_INTERVAL: NLA_U16, 0 to disable
  *            WGPEER_A_ALLOWEDIPS: NLA_NESTED
  *                0: NLA_NESTED
@@ -160,6 +164,7 @@ enum wgdevice_attribute {
 	WGDEVICE_A_FLAGS,
 	WGDEVICE_A_LISTEN_PORT,
 	WGDEVICE_A_LISTEN_PORT_2,
+	WGDEVICE_A_LISTEN_PORT_3,
 	WGDEVICE_A_FWMARK,
 	WGDEVICE_A_PEERS,
 	__WGDEVICE_A_LAST
@@ -180,6 +185,7 @@ enum wgpeer_attribute {
 	WGPEER_A_FLAGS,
 	WGPEER_A_ENDPOINT,
 	WGPEER_A_ENDPOINT_2,
+	WGPEER_A_ENDPOINT_3,
 	WGPEER_A_PERSISTENT_KEEPALIVE_INTERVAL,
 	WGPEER_A_LAST_HANDSHAKE_TIME,
 	WGPEER_A_RX_BYTES,

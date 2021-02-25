@@ -30,7 +30,7 @@ static void wg_packet_send_handshake_initiation(struct wg_peer *peer)
 	atomic64_set(&peer->last_sent_handshake, ktime_get_coarse_boottime_ns());
 	net_dbg_ratelimited("%s: Sending handshake initiation to peer %llu (%pISpfsc)\n",
 			    peer->device->dev->name, peer->internal_id,
-			    &peer->endpoint.addr);
+			    &peer->endpoint[0].addr);
 
 	if (wg_noise_handshake_create_initiation(&packet, &peer->handshake)) {
 		wg_cookie_add_mac_to_packet(&packet, sizeof(packet), peer);
@@ -90,7 +90,7 @@ void wg_packet_send_handshake_response(struct wg_peer *peer)
 	atomic64_set(&peer->last_sent_handshake, ktime_get_coarse_boottime_ns());
 	net_dbg_ratelimited("%s: Sending handshake response to peer %llu (%pISpfsc)\n",
 			    peer->device->dev->name, peer->internal_id,
-			    &peer->endpoint.addr);
+			    &peer->endpoint[0].addr);
 
 	if (wg_noise_handshake_create_response(&packet, &peer->handshake)) {
 		wg_cookie_add_mac_to_packet(&packet, sizeof(packet), peer);
@@ -236,7 +236,7 @@ void wg_packet_send_keepalive(struct wg_peer *peer)
 		skb_queue_tail(&peer->staged_packet_queue, skb);
 		net_dbg_ratelimited("%s: Sending keepalive packet to peer %llu (%pISpfsc)\n",
 				    peer->device->dev->name, peer->internal_id,
-				    &peer->endpoint.addr);
+				    &peer->endpoint[0].addr);
 	}
 
 	wg_packet_send_staged_packets(peer);
