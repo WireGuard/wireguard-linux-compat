@@ -419,6 +419,7 @@ static struct rtnl_link_ops link_ops __read_mostly = {
 static void wg_netns_pre_exit(struct net *net)
 {
 	struct wg_device *wg;
+	int p_id;
 
 	rtnl_lock();
 	list_for_each_entry(wg, &device_list, device_list) {
@@ -427,8 +428,8 @@ static void wg_netns_pre_exit(struct net *net)
 			netif_carrier_off(wg->dev);
 			mutex_lock(&wg->device_update_lock);
 			rcu_assign_pointer(wg->creating_net, NULL);
-			wg_socket_reinit(wg, NULL, NULL, WGDEVICE_MAIN_PORT);
-			wg_socket_reinit(wg, NULL, NULL, WGDEVICE_SECONDARY_PORT);
+			for (p_id = 0; p_id < WGDEVICE_MAX_PORTS; ++p_id)
+				wg_socket_reinit(wg, NULL, NULL, p_id);
 			mutex_unlock(&wg->device_update_lock);
 		}
 	}
