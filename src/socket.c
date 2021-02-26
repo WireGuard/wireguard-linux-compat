@@ -364,7 +364,7 @@ void wg_socket_set_peer_endpoint(struct wg_peer *peer,
 			return;
 		}
 
-	for (e_id = 1; e_id < WGPEER_MAX_ENDPOINTS; ++e_id)
+	for (e_id = WGPEER_MAX_ENDPOINTS - 1; e_id > 0; --e_id)
 		endpoint_copy(&peer->endpoint[e_id - 1], &peer->endpoint[e_id],
 					 &peer->endpoint_cache[e_id], &peer->endpoint_lock[e_id]);
 
