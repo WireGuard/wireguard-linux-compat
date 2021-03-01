@@ -18,6 +18,10 @@
 #include <linux/net.h>
 #include <linux/ptr_ring.h>
 
+enum {
+	WGDEVICE_MAX_PORTS = 3
+};
+
 struct wg_device;
 
 struct multicore_worker {
@@ -35,14 +39,6 @@ struct prev_queue {
 	struct sk_buff *head, *tail, *peeked;
 	struct { struct sk_buff *next, *prev; } empty;
 	atomic_t count;
-};
-
-enum {
-	WGDEVICE_MAIN_PORT,
-	WGDEVICE_SECONDARY_PORT,
-	WGDEVICE_TERTIARY_PORT,
-	WGDEVICE_MAX_PORTS,
-	WGDEVICE_RANDOM_PORT
 };
 
 struct wg_device {

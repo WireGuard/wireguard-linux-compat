@@ -16,6 +16,10 @@
 #include <linux/kref.h>
 #include <net/dst_cache.h>
 
+enum {
+	WGPEER_MAX_ENDPOINTS = 3
+};
+
 struct wg_device;
 
 struct endpoint {
@@ -32,14 +36,6 @@ struct endpoint {
 		};
 		struct in6_addr src6;
 	};
-};
-
-enum {
-	WGPEER_MAIN_ENDPOINT,
-	WGPEER_SECONDARY_ENDPOINT,
-	WGPEER_TERTIARY_ENDPOINT,
-	WGPEER_MAX_ENDPOINTS,
-	WGPEER_RANDOM_ENDPOINT
 };
 
 struct wg_peer {

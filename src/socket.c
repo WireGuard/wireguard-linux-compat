@@ -17,12 +17,12 @@
 #include <net/udp_tunnel.h>
 #include <net/ipv6.h>
 
-int __SEND_FROM_PORT = WGDEVICE_RANDOM_PORT;
-int __SEND_TO_ENDPOINT = WGPEER_MAIN_ENDPOINT;
+bool __SEND_FROM_RANDOM_PORT = true;
+bool __SEND_TO_RANDOM_ENDPOINT = false;
 static int send4(struct wg_device *wg, struct sk_buff *skb,
 		 struct endpoint *endpoint, u8 ds, struct dst_cache *cache)
 {
-	int p_id = __SEND_FROM_PORT;
+	int p_id = __SEND_FROM_RANDOM_PORT;
 	struct flowi4 fl = {
 		.saddr = endpoint->src4.s_addr,
 		.daddr = endpoint->addr4.sin_addr.s_addr,
@@ -40,7 +40,7 @@ static int send4(struct wg_device *wg, struct sk_buff *skb,
 	skb->mark = wg->fwmark;
 	rcu_read_lock_bh();
 
-	if (p_id == WGDEVICE_RANDOM_PORT) {
+	if (p_id) {
 		p_id = cur;
 		if (++cur >= WGDEVICE_MAX_PORTS)
 			cur = 0;
@@ -106,7 +106,7 @@ out:
 static int send6(struct wg_device *wg, struct sk_buff *skb,
 		 struct endpoint *endpoint, u8 ds, struct dst_cache *cache)
 {
-	int p_id = __SEND_FROM_PORT;
+	int p_id = __SEND_FROM_RANDOM_PORT;
 #if IS_ENABLED(CONFIG_IPV6)
 	struct flowi6 fl = {
 		.saddr = endpoint->src6,
@@ -127,7 +127,7 @@ static int send6(struct wg_device *wg, struct sk_buff *skb,
 	skb->mark = wg->fwmark;
 	rcu_read_lock_bh();
 
-	if (p_id == WGDEVICE_RANDOM_PORT) {
+	if (p_id) {
 		p_id = cur;
 		if (++cur >= WGDEVICE_MAX_PORTS)
 			cur = 0;
@@ -182,7 +182,7 @@ out:
 
 int wg_socket_send_skb_to_peer(struct wg_peer *peer, struct sk_buff *skb, u8 ds)
 {
-	int e_id = __SEND_TO_ENDPOINT;
+	int e_id = __SEND_TO_RANDOM_ENDPOINT;
 	size_t skb_len = skb->len;
 	int ret = -EAFNOSUPPORT;
 	struct endpoint *peer_endpoint;
@@ -190,7 +190,7 @@ int wg_socket_send_skb_to_peer(struct wg_peer *peer, struct sk_buff *skb, u8 ds)
 	rwlock_t *peer_endpoint_lock;
 	static int cur = 0;
 
-	if (e_id == WGPEER_RANDOM_ENDPOINT) {
+	if (e_id) {
 		e_id = cur;
 		if (++cur >= peer->num_endpoints)
 			cur = 0;
