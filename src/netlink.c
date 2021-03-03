@@ -557,6 +557,10 @@ static int wg_set_device(struct sk_buff *skb, struct genl_info *info)
 
 	for (p_id = 0; p_id < WGDEVICE_MAX_PORTS; ++p_id)
 		if (info->attrs[WGDEVICE_A_LISTEN_PORT + p_id]) {
+			if (flags & WGDEVICE_F_REPLACE_PORTS) {
+				wg->incoming_port[p_id] = 0;
+				wg_socket_reinit(wg, NULL, NULL, p_id);
+			}
 			ret = set_port(wg,
 				nla_get_u16(info->attrs[WGDEVICE_A_LISTEN_PORT + p_id]), first_empty_port(wg));
 			if (ret)
