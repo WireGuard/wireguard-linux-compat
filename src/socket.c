@@ -392,6 +392,17 @@ void wg_socket_clear_peer_endpoint_src(struct wg_peer *peer)
 	}
 }
 
+void wg_socket_clear_peer_endpoint(struct wg_peer *peer)
+{
+	int e_id;
+	peer->num_endpoints = 0;
+	for (e_id = 0; e_id < WGPEER_MAX_ENDPOINTS; ++e_id) {
+		write_lock_bh(&peer->endpoint_lock[e_id]);
+		memset(&peer->endpoint[e_id], 0, sizeof(peer->endpoint[e_id]));
+		write_unlock_bh(&peer->endpoint_lock[e_id]);
+	}
+}
+
 static int wg_receive(struct sock *sk, struct sk_buff *skb)
 {
 	struct wg_device *wg;

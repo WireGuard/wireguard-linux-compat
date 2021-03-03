@@ -455,6 +455,9 @@ static int set_peer(struct wg_device *wg, struct nlattr **attrs)
 		up_write(&peer->handshake.lock);
 	}
 
+	if (flags & WGPEER_F_REPLACE_ENDPOINTS)
+		wg_socket_clear_peer_endpoint(peer);
+
 	for (e_id = 0; e_id < WGPEER_MAX_ENDPOINTS; ++e_id)
 		if (attrs[WGPEER_A_ENDPOINT + e_id]) {
 			struct sockaddr *addr = nla_data(attrs[WGPEER_A_ENDPOINT + e_id]);
