@@ -40,14 +40,14 @@ static void push_rcu(struct allowedips_node **stack,
 		     struct allowedips_node __rcu *p, unsigned int *len)
 {
 	if (rcu_access_pointer(p)) {
-		WARN_ON(IS_ENABLED(DEBUG) && *len >= 128);
+		WARN_ON(IS_ENABLED(DEBUG) && *len >= 128 + 1);
 		stack[(*len)++] = rcu_dereference_raw(p);
 	}
 }
 
 static void root_free_rcu(struct rcu_head *rcu)
 {
-	struct allowedips_node *node, *stack[128] = {
+	struct allowedips_node *node, *stack[128 + 1] = {
 		container_of(rcu, struct allowedips_node, rcu) };
 	unsigned int len = 1;
 
@@ -60,7 +60,7 @@ static void root_free_rcu(struct rcu_head *rcu)
 
 static void root_remove_peer_lists(struct allowedips_node *root)
 {
-	struct allowedips_node *node, *stack[128] = { root };
+	struct allowedips_node *node, *stack[128 + 1] = { root };
 	unsigned int len = 1;
 
 	while (len > 0 && (node = stack[--len])) {
@@ -77,11 +77,11 @@ static void walk_remove_by_peer(struct allowedips_node __rcu **top,
 #define REF(p) rcu_access_pointer(p)
 #define DEREF(p) rcu_dereference_protected(*(p), lockdep_is_held(lock))
 #define PUSH(p) ({                                                             \
-		WARN_ON(IS_ENABLED(DEBUG) && len >= 128);                      \
+		WARN_ON(IS_ENABLED(DEBUG) && len >= 128 + 1);                      \
 		stack[len++] = p;                                              \
 	})
 
-	struct allowedips_node __rcu **stack[128], **nptr;
+	struct allowedips_node __rcu **stack[128 + 1], **nptr;
 	struct allowedips_node *node, *prev;
 	unsigned int len;
 
