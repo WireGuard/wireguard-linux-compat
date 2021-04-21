@@ -320,28 +320,15 @@ static int wg_get_device_done(struct netlink_callback *cb)
 	return 0;
 }
 
-static int first_empty_port(struct wg_device *wg)
-{
-	int p_id;
-	for (p_id = 0; p_id < WGDEVICE_MAX_PORTS; ++p_id)
-		if (!wg->incoming_port[p_id])
-			return p_id;
-	return -1;
-}
-
 static int set_port(struct wg_device *wg, u16 port, int p_id)
 {
 	struct wg_peer *peer;
-	u16 *incoming_port;
-	if (p_id < 0)
-		return -ENOSPC;
-	incoming_port = &wg->incoming_port[p_id];
-	if (*incoming_port == port)
+	if (wg->incoming_port[p_id] == port)
 		return 0;
 	list_for_each_entry(peer, &wg->peer_list, peer_list)
 		wg_socket_clear_peer_endpoint_src(peer);
 	if (!netif_running(wg->dev)) {
-		*incoming_port = port;
+		wg->incoming_port[p_id] = port;
 		return 0;
 	}
 	return wg_socket_init(wg, port, p_id);
@@ -558,17 +545,31 @@ static int wg_set_device(struct sk_buff *skb, struct genl_info *info)
 			wg_socket_clear_peer_endpoint_src(peer);
 	}
 
-	for (p_id = 0; p_id < WGDEVICE_MAX_PORTS; ++p_id)
-		if (info->attrs[WGDEVICE_A_LISTEN_PORT + p_id]) {
-			if (flags & WGDEVICE_F_REPLACE_PORTS) {
-				wg->incoming_port[p_id] = 0;
-				wg_socket_reinit(wg, NULL, NULL, p_id);
-			}
-			ret = set_port(wg,
-				nla_get_u16(info->attrs[WGDEVICE_A_LISTEN_PORT + p_id]), first_empty_port(wg));
-			if (ret)
+	/* We assume that netlink message is large enough
+	 * to contain the flag and ports in a single message
+	 */
+	if (flags & WGDEVICE_F_REPLACE_PORTS) {
+		/* First we clear all sockets */
+		for (p_id = 0; p_id < WGDEVICE_MAX_PORTS; ++p_id) {
+			wg->incoming_port[p_id] = 0;
+			wg_socket_reinit(wg, NULL, NULL, p_id);
+		}
+		/* Now we add back the sockets */
+		for (p_id = 0; p_id < WGDEVICE_MAX_PORTS; ++p_id) {
+			/* Value was given for this port */
+			if (info->attrs[WGDEVICE_A_LISTEN_PORT + p_id] &&
+				nla_get_u16(info->attrs[WGDEVICE_A_LISTEN_PORT + p_id]))
+				ret = set_port(wg,
+					nla_get_u16(info->attrs[WGDEVICE_A_LISTEN_PORT + p_id]), p_id);
+			else /* Either not set, or set to 0 */
+				ret = wg_socket_init(wg, wg->incoming_port[p_id], p_id);
+			/* In this case, we don't use set_port since it compares the
+			 * current port value (which was set to 0) to the new port value (also 0)
+			 */
+			if (ret < 0)
 				goto out;
 		}
+	}
 
 	if (flags & WGDEVICE_F_REPLACE_PEERS)
 		wg_peer_remove_all(wg);

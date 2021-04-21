@@ -1,0 +1,124 @@
+To compile the code (using checkinstall):
+make && (printf "\n\n\ny\n" && cat) | checkinstall --pkgname=wireguard --backup=no
+
+To restart:
+modprobe -r wireguard && modprobe wireguard
+
+To see diff:
+git diff 5de064..HEAD
+
+Installation instructions
+--------------------------
+Original WireGuard can be found at:
+/lib/modules/$(uname -r)/kernel/wireguard/wireguard.ko
+
+Modified WireGuard is installed to:
+/lib/modules/$(uname -r)/extra/wireguard.ko
+
+To override the original WireGuard, we make use of the updates folder
+/lib/modules/$(uname -r)/updates
+and create a symbolic link
+i.e. inside updates/ we do: ln -s ../extra/wireguard.ko
+For changes to take effect, run: depmod -a
+
+Other observations
+-------------------
+Order of operations
+- wg_setup (ip link add wg0 type wireguard)
+- wg_newlink (ip link add wg0 type wireguard)
+- wg_set_device (wg setconf wg0 <file>)
+- wg_open (ip link set mtu 1420 up dev wg0)
+- wg_set_device (wg set wg0 fwmark 51820)
+
+If no listen port is set:
+- wg_set_device is first called with listen port as 0
+- wg_open then calls wg_socket_init with listen port as 0
+-- .local_udp_port = 0 -> udp_socket_create -> ... -> kernel_bind -> bind
+-- binding port 0 leads to OS picking first unused port
+
+TO MODIFY
+---------
+device.h: Change WGDEVICE_MAX_PORTS (Default = 3)
+peer.h: Change WGPEER_MAX_ENDPOINTS (Default = 3)
+socket.c: Change __SEND_FROM_RANDOM_PORT / __SEND_TO_RANDOM_ENDPOINT
+To make it > 3, need to add in the enums to uapi/wireguard.h and update policies, etc.
+
+CHANGELOG
+---------
+In essence, changes to wireguard-linux-compat involve
+1. Modifying the enums / netlink to receive the new values
+2. Modifying the structs to hold the new values
+3. Modifying the functions to make use of these new values
+
+[Change 1 - More Ports]
+~~~~~~~~~~~~~~~~~~~~~~~
+netlink.c
+- [struct nla_policy device_policy] Add WGDEVICE_A_LISTEN_PORT_2 and WGDEVICE_A_LISTEN_PORT_3
+- [wg_set_device] Process WGDEVICE_F_REPLACE_PORTS flag and store listen port values
+- [wg_get_device_dump] Dump all listen port values
+- [set_port] Add a p_id parameter which is later passed to wg_socket_init; modify the corresponding port
+
+device.c
+- [wg_open] Add p_id parameter when calling wg_socket_init, and also repeat for all ports
+- [wg_stop / wg_destruct / wg_netns_pre_exit] Add p_id parameter when calling wg_socket_reinit, and also repeat for all ports
+
+device.h
+- [struct wg_device] Change incoming_port, sock4 and sock6 to arrays
+- Add enum WGDEVICE_MAX_PORTS
+
+uapi/wireguard.h
+- [enum wgdevice_flag] Add enum WGDEVICE_F_REPLACE_PORTS and also add it to __WGDEVICE_F_ALL
+- Add enum WGDEVICE_A_LISTEN_PORT_2 and WGDEVICE_A_LISTEN_PORT_3
+
+socket.c
+- [wg_socket_init] Add p_id parameter which is later passed to wg_socket_reinit
+- [wg_socket_reinit] Add p_id parameter and update the corresponding socket
+
+socket.h
+- [wg_socket_init / wg_socket_reinit] Add p_id parameter to the function signatures
+
+[Change 2 - More Endpoints]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+netlink.c
+- [struct nla_policy peer_policy] Add WGPEER_A_ENDPOINT_2 and WGPEER_A_ENDPOINT_3
+- [get_peer] Add nla_put for all endpoints
+- [set_peer] Process WGPEER_F_REPLACE_ENDPOINTS flag and store endpoint values
+
+device.c (Debugging)
+- [wg_xmit] Default to family of first endpoint
+
+uapi/wireguard.h
+- [enum wgpeer_flag] Add enum WGPEER_F_REPLACE_ENDPOINTS and also add it to __WGPEER_F_ALL
+- Add enum WGPEER_A_ENDPOINT_2 and WGPEER_A_ENDPOINT_3
+
+socket.c
+- Add bools __SEND_FROM_RANDOM_PORT and __SEND_TO_RANDOM_ENDPOINT
+- [new: endpoint_almost_eq] Checks if existing endpoint and new endpoint are almost equal (i.e. s_addr or src_if4 can be 0 -- see code comments for clarification)
+- [new: endpoint_copy] Copies the data associated with one endpoint to another
+- [new: endpoint_empty] Check if endpoint is not set
+- [wg_socket_set_peer_endpoint] Now sets to first empty or almost_eq endpoint, otherwise shift everything up and insert at first position
+- [send4 / send6] Use a counter to do round-robin sending from the ports
+- [wg_socket_send_skb_to_peer] Use a counter to do round-robin sending to endpoints
+- [wg_socket_clear_peer_endpoint_src] Iterate over all endpoints
+- [new: wg_socket_clear_peer_endpoint] Reset all endpoints (called when WGPEER_F_REPLACE_ENDPOINTS flag is set)
+
+socket.h
+- [wg_socket_clear_peer_endpoint] Add function signature
+
+peer.c
+- [wg_peer_create] Call rwlock_init for all endpoint_lock and dst_cache_init for all dst_cache
+- [rcu_release] Call dst_cache_destroy for all dst_cache
+- [kref_release] Default to address of first endpoint (Debugging)
+
+peer.h
+- Add enum WGPEER_MAX_ENDPOINTS
+- [struct wg_peer] Change endpoint, endpoint_cache and endpoint_lock to arrays; add num_endpoints
+
+receive.c (Debugging)
+- [wg_receive_handshake_packet / wg_packet_consume_data_done] Default to first endpoint
+
+send.c (Debugging)
+- [wg_packet_send_handshake_initiation / wg_packet_send_handshake_response / wg_packet_send_keepalive] Default to first endpoint
+
+timers.c (Debugging)
+- [wg_expired_retransmit_handshake / wg_expired_new_handshake / wg_queued_expired_zero_key_material] Default to first endpoint

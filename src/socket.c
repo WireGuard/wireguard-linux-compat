@@ -17,7 +17,9 @@
 #include <net/udp_tunnel.h>
 #include <net/ipv6.h>
 
+// Send from all 3 ports or only the first port?
 bool __SEND_FROM_RANDOM_PORT = true;
+// Send to all 3 endpoints or only the first endpoint?
 bool __SEND_TO_RANDOM_ENDPOINT = false;
 static int send4(struct wg_device *wg, struct sk_buff *skb,
 		 struct endpoint *endpoint, u8 ds, struct dst_cache *cache)
@@ -298,7 +300,18 @@ static bool endpoint_eq(const struct endpoint *a, const struct endpoint *b)
 		ipv6_addr_equal(&a->src6, &b->src6)) ||
 	       unlikely(!a->addr.sa_family && !b->addr.sa_family);
 }
-// This only works for so long we only deal with ports
+
+/* Originally with only one port, we can just keep overwriting the endpoint
+ * But with multiple endpoints, we want to do a round-robin / fill up unique endpoints
+ * However there are some problems with using endpoint_eq:
+ * 1. It compares s_addr (source address)
+ * 2. It compares src_if4 (interface that the skb came from)
+ * When we first initialise endpoints, s_addr and src_if4 are both 0
+ * i.e. they are NOT "equal" to the endpoints from the incoming skb
+ * So here we define an almost_eq function that overlooks those differences
+ * and compares them only on family, address and port
+ */
+
 static bool endpoint_almost_eq(const struct endpoint *a, const struct endpoint *b)
 {
 	return (a->addr.sa_family == AF_INET && b->addr.sa_family == AF_INET &&
@@ -310,8 +323,9 @@ static bool endpoint_almost_eq(const struct endpoint *a, const struct endpoint *
 	       (a->addr.sa_family == AF_INET6 &&
 		b->addr.sa_family == AF_INET6 &&
 		a->addr6.sin6_port == b->addr6.sin6_port &&
-		ipv6_addr_equal(&a->addr6.sin6_addr, &b->addr6.sin6_addr) && // Change this
-		a->addr6.sin6_scope_id == b->addr6.sin6_scope_id && // and this
+		// TODO: modify sin6_addr and scope_id checks too
+		ipv6_addr_equal(&a->addr6.sin6_addr, &b->addr6.sin6_addr) &&
+		a->addr6.sin6_scope_id == b->addr6.sin6_scope_id &&
 		ipv6_addr_equal(&a->src6, &b->src6)) ||
 	       unlikely(!a->addr.sa_family && !b->addr.sa_family);
 }
@@ -350,10 +364,13 @@ void wg_socket_set_peer_endpoint(struct wg_peer *peer,
 	 */
 	int e_id;
 
+	// Endpoint already exists; ignore
 	for (e_id = 0; e_id < WGPEER_MAX_ENDPOINTS; ++e_id)
 		if (endpoint_eq(endpoint, &peer->endpoint[e_id]))
 			return;
 
+	// Look for first empty slot (and copy all details)
+	// or an almost_eq slot (and copy s_addr and src_if4)
 	for (e_id = 0; e_id < WGPEER_MAX_ENDPOINTS; ++e_id)
 		if (endpoint_empty(&peer->endpoint[e_id]) ||
 			endpoint_almost_eq(endpoint, &peer->endpoint[e_id])) {
@@ -364,9 +381,13 @@ void wg_socket_set_peer_endpoint(struct wg_peer *peer,
 			return;
 		}
 
-	for (e_id = WGPEER_MAX_ENDPOINTS - 1; e_id > 0; --e_id)
+	// Otherwise insert at first slot and shift the rest
+	for (e_id = WGPEER_MAX_ENDPOINTS - 1; e_id > 0; --e_id) {
+		read_lock_bh(&peer->endpoint_lock[e_id - 1]);
 		endpoint_copy(&peer->endpoint[e_id - 1], &peer->endpoint[e_id],
 					 &peer->endpoint_cache[e_id], &peer->endpoint_lock[e_id]);
+		read_unlock_bh(&peer->endpoint_lock[e_id - 1]);
+	}
 
 	endpoint_copy(endpoint, &peer->endpoint[0],
 				 &peer->endpoint_cache[0], &peer->endpoint_lock[0]);
