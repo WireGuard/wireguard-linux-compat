@@ -178,11 +178,11 @@ static inline int __maybe_unused __compat_udp_sock_create(struct net *net, struc
 {
 	struct udp_port_cfg old_cfg = {
 		.family = cfg->family,
-		.local_ip = cfg->local_ip,
+		{.local_ip = cfg->local_ip},
 #if IS_ENABLED(CONFIG_IPV6)
 		.local_ip6 = cfg->local_ip6,
 #endif
-		.peer_ip = cfg->peer_ip,
+		{.peer_ip = cfg->peer_ip},
 #if IS_ENABLED(CONFIG_IPV6)
 		.peer_ip6 = cfg->peer_ip6,
 #endif
