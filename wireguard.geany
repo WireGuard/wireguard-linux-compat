@@ -1,0 +1,50 @@
+[editor]
+line_wrapping=false
+line_break_column=72
+auto_continue_multiline=true
+
+[file_prefs]
+final_new_line=false
+ensure_convert_new_lines=false
+strip_trailing_spaces=true
+replace_tabs=false
+
+[indentation]
+indent_width=2
+indent_type=2
+indent_hard_tab_width=4
+detect_indent=true
+detect_indent_width=true
+indent_mode=2
+
+[project]
+name=wireguard
+base_path=src
+description=wireguard-linux-compat
+file_patterns=*.c;*.h;
+
+[long line marker]
+long_line_behaviour=1
+long_line_column=80
+
+[build-menu]
+NF_00_LB=_Make
+NF_00_CM=ltibMake KERNELRELEASE=3.18.140-lpc31-mbari2 KERNELDIR=~/git/linux
+NF_00_WD=%p
+NF_01_LB=Make Custom _Target...
+NF_01_CM=ltibMake KERNELRELEASE=3.18.140-lpc31-mbari2 KERNELDIR=~/git/linux 
+NF_01_WD=%p
+NF_02_LB=Make _Object
+NF_02_CM=ltibMake %e.o
+NF_02_WD=%p
+NF_03_LB=Install
+NF_03_CM=ltibMake KERNELRELEASE=3.18.140-lpc31-mbari2 KERNELDIR=~/git/linux DEPMOD=: INSTALL_MOD_STRIP=1 install
+NF_03_WD=%p
+
+[prjorg]
+source_patterns=*.c;*.C;*.cpp;*.cxx;*.c++;*.cc;*.m;
+header_patterns=*.h;*.H;*.hpp;*.hxx;*.h++;*.hh;
+ignored_dirs_patterns=.*;
+ignored_file_patterns=*.o;*.obj;*.a;*.lib;*.so;*.png;*.eps;*.py;*.pdf;*.svg;*.zip;*.7z*;*.tar*;.*;*.dll;*.lo;*.la;*.class;*.jar;*.pyc;*.mo;*.gmo;
+generate_tag_prefs=1
+external_dirs=
