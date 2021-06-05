@@ -21,3 +21,4 @@ src/tests/qemu/distfiles/
 *.til
 .cache.mk
 src/crypto/zinc/*/*.S
+src/wireguard.mod
