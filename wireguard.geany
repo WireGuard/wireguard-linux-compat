@@ -38,7 +38,7 @@ NF_02_LB=Make _Object
 NF_02_CM=ltibMake %e.o
 NF_02_WD=%p
 NF_03_LB=Install
-NF_03_CM=ltibMake KERNELRELEASE=3.18.140-lpc31-mbari2 KERNELDIR=~/git/linux DEPMOD=: INSTALL_MOD_STRIP=1 install
+NF_03_CM=ltibMake KERNELRELEASE=3.18.140-lpc31-mbari2 KERNELDIR=~/git/linux DEPMOD=: install
 NF_03_WD=%p
 
 [prjorg]
