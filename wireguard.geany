@@ -29,16 +29,16 @@ long_line_column=80
 
 [build-menu]
 NF_00_LB=_Make
-NF_00_CM=ltibMake KERNELRELEASE=3.18.140-lpc31-mbari2 KERNELDIR=~/git/linux
+NF_00_CM=ltibMake KERNELRELEASE=3.18.140-lpc31-mbari3 KERNELDIR=~/git/linux
 NF_00_WD=%p
 NF_01_LB=Make Custom _Target...
-NF_01_CM=ltibMake KERNELRELEASE=3.18.140-lpc31-mbari2 KERNELDIR=~/git/linux 
+NF_01_CM=ltibMake KERNELRELEASE=3.18.140-lpc31-mbari3 KERNELDIR=~/git/linux 
 NF_01_WD=%p
 NF_02_LB=Make _Object
 NF_02_CM=ltibMake %e.o
 NF_02_WD=%p
 NF_03_LB=Install
-NF_03_CM=ltibMake KERNELRELEASE=3.18.140-lpc31-mbari2 KERNELDIR=~/git/linux DEPMOD=: install
+NF_03_CM=ltibMake KERNELRELEASE=3.18.140-lpc31-mbari3 KERNELDIR=~/git/linux DEPMOD=: install
 NF_03_WD=%p
 
 [prjorg]
