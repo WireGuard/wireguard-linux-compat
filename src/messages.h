@@ -19,7 +19,9 @@ enum noise_lengths {
 	NOISE_SYMMETRIC_KEY_LEN = CHACHA20POLY1305_KEY_SIZE,
 	NOISE_TIMESTAMP_LEN = sizeof(u64) + sizeof(u32),
 	NOISE_AUTHTAG_LEN = CHACHA20POLY1305_AUTHTAG_SIZE,
-	NOISE_HASH_LEN = BLAKE2S_HASH_SIZE
+	NOISE_HASH_LEN = BLAKE2S_HASH_SIZE,
+	/* size of initiation message + some random bytes we add in wg_obfuscate_packet */
+	NOISE_OBFUSCATE_LEN_MAX = 192
 };
 
 #define noise_encrypted_len(plain_len) ((plain_len) + NOISE_AUTHTAG_LEN)
@@ -80,6 +82,15 @@ struct message_macs {
 struct message_handshake_initiation {
 	struct message_header header;
 	__le32 sender_index;
+	/*
+	 * We only need to send obfuscation key to a server, because
+	 * we may get cookie message back. The cookie messages are send
+	 * when server is experiencing high load and without peer lookup.
+	 * Without peer lookup we're not able to get peer obfuscation key
+	 * anyhow except sending it in initiation message. Fortunately we're
+	 * sending it encrypted with server obfuscation key.
+	 */
+	u8 obfuscator[NOISE_PUBLIC_KEY_LEN];
 	u8 unencrypted_ephemeral[NOISE_PUBLIC_KEY_LEN];
 	u8 encrypted_static[noise_encrypted_len(NOISE_PUBLIC_KEY_LEN)];
 	u8 encrypted_timestamp[noise_encrypted_len(NOISE_TIMESTAMP_LEN)];

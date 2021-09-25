@@ -41,7 +41,8 @@ void wg_packet_send_queued_handshake_initiation(struct wg_peer *peer,
 void wg_packet_send_handshake_response(struct wg_peer *peer);
 void wg_packet_send_handshake_cookie(struct wg_device *wg,
 				     struct sk_buff *initiating_skb,
-				     __le32 sender_index);
+				     __le32 sender_index,
+					 const u8 obfuscator[NOISE_PUBLIC_KEY_LEN]);
 void wg_packet_send_keepalive(struct wg_peer *peer);
 void wg_packet_purge_staged_packets(struct wg_peer *peer);
 void wg_packet_send_staged_packets(struct wg_peer *peer);

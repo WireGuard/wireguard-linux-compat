@@ -19,10 +19,47 @@
 #include <net/udp.h>
 #include <net/sock.h>
 
+#define MSG_BUFFER(type, name) \
+	union { \
+		u8 s_##name [sizeof(struct type) + 64]; \
+		struct type name; \
+	}
+
+#define OBFUSCATE_ROUND(i, data, addend, k) \
+	do { \
+		((u32 *)data)[i] += addend; \
+		((u32 *)data)[i] ^= k;  \
+		addend += ((u32 *)data)[i]; \
+	} while(0)
+
+static u32 wg_obfuscate_packet(const u8 obfuscator[NOISE_PUBLIC_KEY_LEN],
+		void *buf, u32 len, u32 max_len)
+{
+	int i, n_words = (max_len - len) >> 2;
+	u32 addend = 0, n_kw = NOISE_PUBLIC_KEY_LEN >> 2;
+	const u32 *k = (const u32 *)obfuscator;
+
+	/* Add some junk to the end of the packet if needed. */
+	if (n_words) {
+		u32 rand, junk_size;
+		get_random_bytes(&rand, sizeof(rand));
+		junk_size = (rand % n_words + 1) * sizeof(u32);
+		get_random_bytes((u8 *)buf + len, junk_size);
+		len += junk_size;
+	}
+
+	n_words = min(len & 0xFFFFFFFC, (u32)NOISE_OBFUSCATE_LEN_MAX) >> 2;
+	for (i = n_words - 1; i >= 0; --i) {
+		OBFUSCATE_ROUND(i, buf, addend, k[n_kw & 0x7]);
+	}
+
+	return len;
+}
+
 static void wg_packet_send_handshake_initiation(struct wg_peer *peer)
 {
-	struct message_handshake_initiation packet;
-
+	u32 tx_len;
+	MSG_BUFFER(message_handshake_initiation, packet) u;
 	if (!wg_birthdate_has_expired(atomic64_read(&peer->last_sent_handshake),
 				      REKEY_TIMEOUT))
 		return; /* This function is rate limited. */
@@ -32,13 +69,15 @@ static void wg_packet_send_handshake_initiation(struct wg_peer *peer)
 			    peer->device->dev->name, peer->internal_id,
 			    &peer->endpoint.addr);
 
-	if (wg_noise_handshake_create_initiation(&packet, &peer->handshake)) {
-		wg_cookie_add_mac_to_packet(&packet, sizeof(packet), peer);
+	if (wg_noise_handshake_create_initiation(&u.packet, &peer->handshake)) {
+		wg_cookie_add_mac_to_packet(&u.packet, sizeof(u.packet), peer);
 		wg_timers_any_authenticated_packet_traversal(peer);
 		wg_timers_any_authenticated_packet_sent(peer);
 		atomic64_set(&peer->last_sent_handshake,
 			     ktime_get_coarse_boottime_ns());
-		wg_socket_send_buffer_to_peer(peer, &packet, sizeof(packet),
+		tx_len = wg_obfuscate_packet(peer->handshake.obfuscator,
+			&u.packet, sizeof(u.packet), sizeof(u.s_packet));
+		wg_socket_send_buffer_to_peer(peer, &u.packet, tx_len,
 					      HANDSHAKE_DSCP);
 		wg_timers_handshake_initiated(peer);
 	}
@@ -85,15 +124,16 @@ out:
 
 void wg_packet_send_handshake_response(struct wg_peer *peer)
 {
-	struct message_handshake_response packet;
+	u32 tx_len;
+	MSG_BUFFER(message_handshake_response, packet) u;
 
 	atomic64_set(&peer->last_sent_handshake, ktime_get_coarse_boottime_ns());
 	net_dbg_ratelimited("%s: Sending handshake response to peer %llu (%pISpfsc)\n",
 			    peer->device->dev->name, peer->internal_id,
 			    &peer->endpoint.addr);
 
-	if (wg_noise_handshake_create_response(&packet, &peer->handshake)) {
-		wg_cookie_add_mac_to_packet(&packet, sizeof(packet), peer);
+	if (wg_noise_handshake_create_response(&u.packet, &peer->handshake)) {
+		wg_cookie_add_mac_to_packet(&u.packet, sizeof(u.packet), peer);
 		if (wg_noise_handshake_begin_session(&peer->handshake,
 						     &peer->keypairs)) {
 			wg_timers_session_derived(peer);
@@ -101,8 +141,9 @@ void wg_packet_send_handshake_response(struct wg_peer *peer)
 			wg_timers_any_authenticated_packet_sent(peer);
 			atomic64_set(&peer->last_sent_handshake,
 				     ktime_get_coarse_boottime_ns());
-			wg_socket_send_buffer_to_peer(peer, &packet,
-						      sizeof(packet),
+			tx_len = wg_obfuscate_packet(peer->handshake.obfuscator,
+				&u.packet, sizeof(u.packet), sizeof(u.s_packet));
+			wg_socket_send_buffer_to_peer(peer, &u.packet, tx_len,
 						      HANDSHAKE_DSCP);
 		}
 	}
@@ -110,16 +151,21 @@ void wg_packet_send_handshake_response(struct wg_peer *peer)
 
 void wg_packet_send_handshake_cookie(struct wg_device *wg,
 				     struct sk_buff *initiating_skb,
-				     __le32 sender_index)
+				     __le32 sender_index,
+					 const u8 obfuscator[NOISE_PUBLIC_KEY_LEN])
 {
-	struct message_handshake_cookie packet;
+	u32 tx_len;
+	MSG_BUFFER(message_handshake_cookie, packet) u;
 
 	net_dbg_skb_ratelimited("%s: Sending cookie response for denied handshake message for %pISpfsc\n",
 				wg->dev->name, initiating_skb);
-	wg_cookie_message_create(&packet, initiating_skb, sender_index,
+	wg_cookie_message_create(&u.packet, initiating_skb, sender_index,
 				 &wg->cookie_checker);
-	wg_socket_send_buffer_as_reply_to_skb(wg, initiating_skb, &packet,
-					      sizeof(packet));
+
+	tx_len = wg_obfuscate_packet(obfuscator, &u.packet,
+				sizeof(u.packet), sizeof(u.s_packet));
+	wg_socket_send_buffer_as_reply_to_skb(wg, initiating_skb, &u.packet,
+					      tx_len);
 }
 
 static void keep_key_fresh(struct wg_peer *peer)
@@ -251,6 +297,8 @@ static void wg_packet_create_data_done(struct wg_peer *peer, struct sk_buff *fir
 	wg_timers_any_authenticated_packet_sent(peer);
 	skb_list_walk_safe(first, skb, next) {
 		is_keepalive = skb->len == message_data_len(0);
+		wg_obfuscate_packet(peer->handshake.obfuscator, skb->data,
+				skb->len, skb->len);
 		if (likely(!wg_socket_send_skb_to_peer(peer, skb,
 				PACKET_CB(skb)->ds) && !is_keepalive))
 			data_sent = true;

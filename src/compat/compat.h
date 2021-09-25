@@ -39,10 +39,6 @@
 #error "WireGuard requires Linux >= 3.10"
 #endif
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
-#error "WireGuard has been merged into Linux >= 5.6 and therefore this compatibility module is no longer required."
-#endif
-
 #if defined(ISRHEL7)
 #include <linux/skbuff.h>
 #define headers_end headers_start
@@ -67,6 +63,12 @@
 #else
 #define WRITE_ONCE(p, v) (ACCESS_ONCE(p) = (v))
 #endif
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#define dev_get_tstats64 ip_tunnel_get_stats64
+#define flowi6_to_flowi_common flowi6_to_flowi
+#define flowi4_to_flowi_common flowi4_to_flowi
 #endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 17, 0)
