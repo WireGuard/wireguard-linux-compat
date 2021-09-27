@@ -47,7 +47,7 @@ targets := $(patsubst $(kbuild-dir)/%.pl,%.S,$(wildcard $(patsubst %.o,$(kbuild-
 # Old kernels don't set this, which causes trouble.
 .SECONDARY:
 
-wireguard_obf-y += $(addprefix crypto/zinc/,$(zinc-y))
+$(DEV)-y += $(addprefix crypto/zinc/,$(zinc-y))
 ccflags-y += -I$(kbuild-dir)/crypto/include
 ccflags-$(CONFIG_ZINC_ARCH_X86_64) += -DCONFIG_ZINC_ARCH_X86_64
 ccflags-$(CONFIG_ZINC_ARCH_ARM) += -DCONFIG_ZINC_ARCH_ARM

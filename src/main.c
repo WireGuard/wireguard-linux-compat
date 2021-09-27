@@ -52,7 +52,7 @@ static int __init mod_init(void)
 
 	pr_info("WireGuard " WIREGUARD_VERSION " loaded. See www.wireguard.com for information.\n");
 	pr_info("Copyright (C) 2015-2019 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.\n");
-	pr_info("Protocol %s. Fork URL: https://github.com/el3xyz/wireguard-linux-compat\n", WG_GENL_NAME);
+	pr_info("Protocol name: '%s'. Fork URL: https://github.com/el3xyz/wireguard-linux-compat\n", WG_GENL_NAME);
 
 	return 0;
 

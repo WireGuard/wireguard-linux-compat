@@ -7,9 +7,9 @@ ccflags-y += -Wframe-larger-than=2048
 ccflags-$(CONFIG_WIREGUARD_DEBUG) += -DDEBUG -g
 ccflags-$(if $(WIREGUARD_VERSION),y,) += -D'WIREGUARD_VERSION="$(WIREGUARD_VERSION)"'
 
-wireguard_obf-y := main.o noise.o device.o peer.o timers.o queueing.o send.o receive.o socket.o peerlookup.o allowedips.o ratelimiter.o cookie.o netlink.o
+$(DEV)-y := main.o noise.o device.o peer.o timers.o queueing.o send.o receive.o socket.o peerlookup.o allowedips.o ratelimiter.o cookie.o netlink.o
 
 include $(src)/crypto/Kbuild.include
 include $(src)/compat/Kbuild.include
 
-obj-$(if $(KBUILD_EXTMOD),m,$(CONFIG_WIREGUARD)) := wireguard_obf.o
+obj-$(if $(KBUILD_EXTMOD),m,$(CONFIG_WIREGUARD)) := $(DEV).o

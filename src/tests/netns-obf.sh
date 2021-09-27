@@ -27,6 +27,9 @@ set -e
 
 [ "x$1" == "x" ] && echo "$0 <wg_executable>" && exit 1
 wg_obf=$1
+IFS=':' read _ devtype <<< $($wg_obf --help | grep 'Device type')
+[ "x$devtype" == "x" ] && echo "broken wg executable: $wg_obf" && exit 1
+
 exec 3>&1
 export LANG=C
 export WG_HIDE_KEYS=never
@@ -78,9 +81,9 @@ pp ip netns add $netns1
 pp ip netns add $netns2
 ip0 link set up dev lo
 
-ip0 link add dev wg0 type wireguard_obf
+ip0 link add dev wg0 type ${devtype}
 ip0 link set wg0 netns $netns1
-ip0 link add dev wg0 type wireguard_obf
+ip0 link add dev wg0 type ${devtype}
 ip0 link set wg0 netns $netns2
 key1="$(pp ${wg_obf} genkey)"
 key2="$(pp ${wg_obf} genkey)"
@@ -266,8 +269,8 @@ ip1 addr add fd00::5:1/112 dev wg0
 ip2 addr add fd00::5:2/112 dev wg0
 n1 ${wg_obf} set wg0 private-key <(echo "$key1") peer "$pub2" preshared-key <(echo "$psk") allowed-ips fd00::5:2/128 endpoint 127.0.0.1:2
 n2 ${wg_obf} set wg0 private-key <(echo "$key2") listen-port 2 peer "$pub1" preshared-key <(echo "$psk") allowed-ips fd00::5:1/128 endpoint 127.212.121.99:9998
-ip1 link add wg1 type wireguard_obf
-ip2 link add wg1 type wireguard_obf
+ip1 link add wg1 type ${devtype}
+ip2 link add wg1 type ${devtype}
 ip1 addr add 192.168.241.1/24 dev wg1
 ip1 addr add fd00::1/112 dev wg1
 ip2 addr add 192.168.241.2/24 dev wg1
@@ -302,8 +305,8 @@ ip1 link del wg0
 # │  └────────────────┘  └────────────────┘│    │    └────────────────┘    └───────────────────┘ │     │  └────────────────┘ └────────────────┘ │
 # └────────────────────────────────────────┘    └────────────────────────────────────────────────┘     └────────────────────────────────────────┘
 
-ip1 link add dev wg0 type wireguard_obf
-ip2 link add dev wg0 type wireguard_obf
+ip1 link add dev wg0 type ${devtype}
+ip2 link add dev wg0 type ${devtype}
 configure_peers
 
 ip0 link add vethrc type veth peer name vethc
@@ -349,7 +352,7 @@ n1 iptables -t mangle -D OUTPUT -j MARK --set-xmark 1
 # Test that onion routing works, even when it loops
 n1 ${wg_obf} set wg0 peer "$pub3" allowed-ips 192.168.242.2/32 endpoint 192.168.241.2:5
 ip1 addr add 192.168.242.1/24 dev wg0
-ip2 link add wg1 type wireguard_obf
+ip2 link add wg1 type ${devtype}
 ip2 addr add 192.168.242.2/24 dev wg1
 n2 ${wg_obf} set wg1 private-key <(echo "$key3") listen-port 5 peer "$pub1" allowed-ips 192.168.242.1/32
 ip2 link set wg1 up
@@ -409,8 +412,8 @@ ip2 link del wg0
 # │  └────────────────┘  └────────────────┘│    │  └────────────────┘ └────────────────┘ │
 # └────────────────────────────────────────┘    └────────────────────────────────────────┘
 
-ip1 link add dev wg0 type wireguard_obf
-ip2 link add dev wg0 type wireguard_obf
+ip1 link add dev wg0 type ${devtype}
+ip2 link add dev wg0 type ${devtype}
 configure_peers
 ip1 link add veth1 type veth peer name veth2
 ip1 link set veth2 netns $netns2
@@ -517,7 +520,7 @@ ip1 link del wg0
 ip2 link del wg0
 
 # We test that Netlink/IPC is working properly by doing things that usually cause split responses
-ip0 link add dev wg0 type wireguard_obf
+ip0 link add dev wg0 type ${devtype}
 config=( "[Interface]" "PrivateKey=$(${wg_obf} genkey)" "[Peer]" "PublicKey=$(${wg_obf} genkey)" )
 for a in {1..255}; do
 	for b in {0..255}; do
@@ -531,7 +534,7 @@ for ip in $(n0 ${wg_obf} show wg0 allowed-ips); do
 done
 ((i == 255*256*2+1))
 ip0 link del wg0
-ip0 link add dev wg0 type wireguard_obf
+ip0 link add dev wg0 type ${devtype}
 config=( "[Interface]" "PrivateKey=$(${wg_obf} genkey)" )
 for a in {1..40}; do
 	config+=( "[Peer]" "PublicKey=$(${wg_obf} genkey)" )
@@ -551,7 +554,7 @@ while read -r line; do
 done < <(n0 ${wg_obf} show wg0 allowed-ips)
 ((i == 40))
 ip0 link del wg0
-ip0 link add wg0 type wireguard_obf
+ip0 link add wg0 type ${devtype}
 config=( )
 for i in {1..29}; do
 	config+=( "[Peer]" "PublicKey=$(${wg_obf} genkey)" )
@@ -569,7 +572,7 @@ saved_ifs="$IFS"
 IFS=,
 allowedips="${allowedips[*]}"
 IFS="$saved_ifs"
-ip0 link add wg0 type wireguard_obf
+ip0 link add wg0 type ${devtype}
 n0 ${wg_obf} set wg0 peer "$pub1"
 n0 ${wg_obf} set wg0 peer "$pub2" allowed-ips "$allowedips"
 {
@@ -587,7 +590,7 @@ ip0 link del wg0
 
 ! n0 ${wg_obf} show doesnotexist || false
 
-ip0 link add wg0 type wireguard_obf
+ip0 link add wg0 type ${devtype}
 n0 ${wg_obf} set wg0 private-key <(echo "$key1") peer "$pub2" preshared-key <(echo "$psk")
 [[ $(n0 ${wg_obf} show wg0 private-key) == "$key1" ]]
 [[ $(n0 ${wg_obf} show wg0 preshared-keys) == "$pub2	$psk" ]]
@@ -623,8 +626,8 @@ kill $ncat_pid
 ip0 link del wg0
 
 # Ensure there aren't circular reference loops
-ip1 link add wg1 type wireguard_obf
-ip2 link add wg2 type wireguard_obf
+ip1 link add wg1 type ${devtype}
+ip2 link add wg2 type ${devtype}
 ip1 link set wg1 netns $netns2
 ip2 link set wg2 netns $netns1
 pp ip netns delete $netns1
