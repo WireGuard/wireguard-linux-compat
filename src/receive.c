@@ -44,10 +44,14 @@ static void update_rx_stats(struct wg_peer *peer, size_t len)
 		addend += old; \
 	} while(0)
 
+static u32 wg_deobfuscate_len(u32 len) {
+	return min(len & 0xFFFFFFFC, (u32)NOISE_OBFUSCATE_LEN_MAX);
+}
+
 static void wg_deobfuscate_packet(const u8 obfuscator[NOISE_PUBLIC_KEY_LEN],
 		void *buf, u32 len)
 {
-	int i, n_words = min(len & 0xFFFFFFFC, (u32)NOISE_OBFUSCATE_LEN_MAX) >> 2;
+	int i, n_words = wg_deobfuscate_len(len) >> 2;
 	u32 addend = 0, n_kw = NOISE_PUBLIC_KEY_LEN >> 2;
 	const u32 *k = (const u32 *)obfuscator;
 
@@ -109,9 +113,10 @@ static int prepare_skb_header(const u8 obfuscator[NOISE_PUBLIC_KEY_LEN],
 	data_len -= sizeof(struct udphdr);
 	data_offset = (u8 *)udp + sizeof(struct udphdr) - skb->data;
 	if (unlikely(!pskb_may_pull(skb,
-				data_offset + sizeof(struct message_header)) ||
-		     pskb_trim(skb, data_len + data_offset) < 0))
+				wg_deobfuscate_len(skb->len - data_offset)) ||
+		     pskb_trim(skb, data_len + data_offset) < 0)) {
 		return -EINVAL;
+	}
 	skb_pull(skb, data_offset);
 	if (unlikely(skb->len != data_len))
 		/* Final len does not agree with calculated len */
