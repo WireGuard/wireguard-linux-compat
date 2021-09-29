@@ -113,7 +113,7 @@ static int prepare_skb_header(const u8 obfuscator[NOISE_PUBLIC_KEY_LEN],
 	data_len -= sizeof(struct udphdr);
 	data_offset = (u8 *)udp + sizeof(struct udphdr) - skb->data;
 	if (unlikely(!pskb_may_pull(skb,
-				wg_deobfuscate_len(skb->len - data_offset)) ||
+				data_offset + wg_deobfuscate_len(data_len)) ||
 		     pskb_trim(skb, data_len + data_offset) < 0)) {
 		return -EINVAL;
 	}
