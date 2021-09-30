@@ -19,25 +19,20 @@
 #include <net/udp.h>
 #include <net/sock.h>
 
+#include "zinc/chacha20.h"
+
 #define MSG_BUFFER(type, name) \
 	union { \
 		u8 s_##name [sizeof(struct type) + 64]; \
 		struct type name; \
 	}
 
-#define OBFUSCATE_ROUND(i, data, addend, k) \
-	do { \
-		((u32 *)data)[i] += addend; \
-		((u32 *)data)[i] ^= k;  \
-		addend += ((u32 *)data)[i]; \
-	} while(0)
-
 static u32 wg_obfuscate_packet(const u8 obfuscator[NOISE_PUBLIC_KEY_LEN],
 		void *buf, u32 len, u32 max_len)
 {
-	int i, n_words = (max_len - len) >> 2;
-	u32 addend = 0, n_kw = NOISE_PUBLIC_KEY_LEN >> 2;
-	const u32 *k = (const u32 *)obfuscator;
+	simd_context_t simd_context;
+	struct chacha20_ctx state;
+	u32 obf_len, n_words = (max_len - len) >> 2;
 
 	/* Add some junk to the end of the packet if needed. */
 	if (n_words) {
@@ -48,10 +43,11 @@ static u32 wg_obfuscate_packet(const u8 obfuscator[NOISE_PUBLIC_KEY_LEN],
 		len += junk_size;
 	}
 
-	n_words = min(len & 0xFFFFFFFC, (u32)NOISE_OBFUSCATE_LEN_MAX) >> 2;
-	for (i = n_words - 1; i >= 0; --i) {
-		OBFUSCATE_ROUND(i, buf, addend, k[n_kw & 0x7]);
-	}
+	obf_len = min(len & 0xFFFFFFFC, (u32)NOISE_OBFUSCATE_LEN_MAX);
+	simd_get(&simd_context);
+	chacha20_init(&state, obfuscator, 0);
+	chacha20(&state, buf, buf, obf_len, &simd_context);
+	simd_put(&simd_context);
 
 	return len;
 }

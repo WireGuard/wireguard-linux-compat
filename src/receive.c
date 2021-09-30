@@ -17,6 +17,8 @@
 #include <linux/udp.h>
 #include <net/ip_tunnels.h>
 
+#include "zinc/chacha20.h"
+
 /* Must be called with bh disabled. */
 static void update_rx_stats(struct wg_peer *peer, size_t len)
 {
@@ -33,17 +35,6 @@ static void update_rx_stats(struct wg_peer *peer, size_t len)
 
 #define SKB_TYPE_LE32(skb) (((struct message_header *)(skb)->data)->type)
 
-/* Size must be checked before calling this function
- * See validate_header_len
- */
-#define DEOBFUSCATE_ROUND(i, data, addend, k) \
-	do { \
-		u32 old = ((u32 *)data)[i]; \
-		((u32 *)data)[i] ^= k; \
-		((u32 *)data)[i] -= addend; \
-		addend += old; \
-	} while(0)
-
 static u32 wg_deobfuscate_len(u32 len) {
 	return min(len & 0xFFFFFFFC, (u32)NOISE_OBFUSCATE_LEN_MAX);
 }
@@ -51,13 +42,14 @@ static u32 wg_deobfuscate_len(u32 len) {
 static void wg_deobfuscate_packet(const u8 obfuscator[NOISE_PUBLIC_KEY_LEN],
 		void *buf, u32 len)
 {
-	int i, n_words = wg_deobfuscate_len(len) >> 2;
-	u32 addend = 0, n_kw = NOISE_PUBLIC_KEY_LEN >> 2;
-	const u32 *k = (const u32 *)obfuscator;
+	simd_context_t simd_context;
+	struct chacha20_ctx state;
+	u32 obf_len = wg_deobfuscate_len(len);
 
-	for (i = n_words - 1; i >= 0; --i) {
-		DEOBFUSCATE_ROUND(i, buf, addend, k[n_kw & 0x7]);
-	}
+	simd_get(&simd_context);
+	chacha20_init(&state, obfuscator, 0);
+	chacha20(&state, buf, buf, obf_len, &simd_context);
+	simd_put(&simd_context);
 }
 
 static size_t validate_header_len(const u8 obfuscator[NOISE_PUBLIC_KEY_LEN],
