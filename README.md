@@ -1,4 +1,4 @@
-# WireGuard for Linux 3.10 - 5.14 with obfuscation support
+# notWG - obfuscated secure tunnel for Linux 3.10 - 5.14, based on WireGuard
 
 There are several ways DPI can detect WireGurad traffic
 
@@ -17,7 +17,7 @@ Packet is obfuscated using two techniques
     $ make DEV=<name>
     $ sudo make install
 
-Where <name> is the name of your WireGuard device. You can choose almost any name (e.g foobar).
+Where <name> is the name of your notWG device. You can choose almost any name (e.g foobar).
 Do not use 'wireguard' as the name, this will cause conflict with original wireguard driver.
 
 **More information may be found at [WireGuard.com](https://www.wireguard.com/).**
