@@ -44,11 +44,11 @@ static void wg_deobfuscate_packet(const u8 obfuscator[NOISE_PUBLIC_KEY_LEN],
 {
 	simd_context_t simd_context;
 	struct chacha20_ctx state;
-	u32 obf_len = wg_deobfuscate_len(len);
+	u32 decrypt_len = wg_deobfuscate_len(len) - sizeof(u32);
 
 	simd_get(&simd_context);
-	chacha20_init(&state, obfuscator, 0);
-	chacha20(&state, buf, buf, obf_len, &simd_context);
+	chacha20_init(&state, obfuscator, *(u32 *)((u8 *)buf + decrypt_len));
+	chacha20(&state, buf, buf, decrypt_len, &simd_context);
 	simd_put(&simd_context);
 }
 
