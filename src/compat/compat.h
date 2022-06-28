@@ -16,7 +16,7 @@
 #define ISRHEL7
 #elif RHEL_MAJOR == 8
 #define ISRHEL8
-#if RHEL_MINOR >= 6
+#if RHEL_MINOR >= 7
 #define ISCENTOS8S
 #endif
 #endif
@@ -390,7 +390,7 @@ static inline int get_random_bytes_wait(void *buf, int nbytes)
 #define system_power_efficient_wq system_unbound_wq
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 3, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 3, 0) && !defined(ISCENTOS8S)
 #include <linux/ktime.h>
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)
 #include <linux/hrtimer.h>
