@@ -15,9 +15,6 @@
 #define ISRHEL7
 #elif RHEL_MAJOR == 8
 #define ISRHEL8
-#if RHEL_MINOR >= 6
-#define ISCENTOS8S
-#endif
 #endif
 #endif
 
