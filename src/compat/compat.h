@@ -16,6 +16,9 @@
 #define ISRHEL7
 #elif RHEL_MAJOR == 8
 #define ISRHEL8
+#if RHEL_MINOR >= 7 && RHEL_KERNEL_RELEASE >= 394
+#define IS_NEWER_RHEL8
+#endif
 #endif
 #endif
 #ifdef UTS_UBUNTU_RELEASE_ABI
@@ -387,7 +390,7 @@ static inline int get_random_bytes_wait(void *buf, int nbytes)
 #define system_power_efficient_wq system_unbound_wq
 #endif
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 3, 0)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 3, 0) && !defined(IS_NEWER_RHEL8)
 #include <linux/ktime.h>
 #if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)
 #include <linux/hrtimer.h>

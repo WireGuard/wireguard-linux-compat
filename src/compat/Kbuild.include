@@ -109,3 +109,5 @@ endif
 ifneq ($(shell grep -s -F "\#define LINUX_PACKAGE_ID \" Debian " "$(CURDIR)/include/generated/package.h"),)
 ccflags-y += -DISDEBIAN
 endif
+
+ccflags-y += -DRHEL_KERNEL_RELEASE=$(shell grep -s -E '^\#define RHEL_RELEASE[[:space:]]+"[[:digit:]]+' "$(CURDIR)/include/generated/uapi/linux/version.h"| sed 's/\./ /g'| sed 's/"/ /g' | awk '{print $$3} END {if (!NR) print "0"}')
