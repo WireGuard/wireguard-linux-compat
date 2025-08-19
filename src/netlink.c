@@ -50,7 +50,7 @@ static const struct nla_policy device_policy[WGDEVICE_A_MAX + 1] = {
 	[WGDEVICE_A_H2]		= { .type = NLA_U32 },
 	[WGDEVICE_A_H3]		= { .type = NLA_U32 },
 	[WGDEVICE_A_H4]		= { .type = NLA_U32 },
-	[WGDEVICE_A_PEER]	= { .type = NLA_NESTED }
+	[WGDEVICE_A_PEER]		= { .type = NLA_NESTED }
 };
 
 static const struct nla_policy peer_policy[WGPEER_A_MAX + 1] = {
