@@ -76,7 +76,6 @@ static void prepare_advanced_secured_message(struct sk_buff *skb, struct wg_devi
 			                        wg->dev->name, skb);
 			return;
 		}
-
 		skb_pull(skb, assumed_offset);
 
 		if (SKB_TYPE_LE32(skb) != assumed_type) {
