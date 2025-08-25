@@ -1,0 +1,1467 @@
+diff --git device.c device.c
+index 0a32dad..d0e99c5 100644
+--- device.c
++++ device.c
+@@ -3,6 +3,7 @@
+  * Copyright (C) 2015-2019 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
+  */
+ 
++#include "junk.h"
+ #include "queueing.h"
+ #include "socket.h"
+ #include "timers.h"
+@@ -134,6 +135,11 @@ static netdev_tx_t wg_xmit(struct sk_buff *skb, struct net_device *dev)
+ 	sa_family_t family;
+ 	u32 mtu;
+ 	int ret;
++	void* junk;
++
++	skb_cow(skb, wg->junk_size[MSGIDX_TRANSPORT]);
++	junk = skb_push(skb, wg->junk_size[MSGIDX_TRANSPORT]);
++	get_random_bytes(junk, wg->junk_size[MSGIDX_TRANSPORT]);
+ 
+ 	if (unlikely(!wg_check_packet_protocol(skb))) {
+ 		ret = -EPROTONOSUPPORT;
+@@ -235,6 +241,9 @@ static void wg_destruct(struct net_device *dev)
+ {
+ 	struct wg_device *wg = netdev_priv(dev);
+ 
++	for (int i = 0; i < ARRAY_SIZE(wg->ispecs); ++i)
++		jp_spec_free(&wg->ispecs[i]);
++
+ 	rtnl_lock();
+ 	list_del(&wg->device_list);
+ 	rtnl_unlock();
+@@ -302,6 +311,23 @@ static void wg_setup(struct net_device *dev)
+ 
+ 	memset(wg, 0, sizeof(*wg));
+ 	wg->dev = dev;
++
++	wg->headers[MSGIDX_HANDSHAKE_INIT] = (struct magic_header) {
++		.start = MESSAGE_HANDSHAKE_INITIATION,
++		.end = MESSAGE_HANDSHAKE_INITIATION
++	};
++	wg->headers[MSGIDX_HANDSHAKE_RESPONSE] = (struct magic_header) {
++		.start = MESSAGE_HANDSHAKE_RESPONSE,
++		.end = MESSAGE_HANDSHAKE_RESPONSE
++	};
++	wg->headers[MSGIDX_HANDSHAKE_COOKIE] = (struct magic_header) {
++		.start = MESSAGE_HANDSHAKE_COOKIE,
++		.end = MESSAGE_HANDSHAKE_COOKIE
++	};
++	wg->headers[MSGIDX_TRANSPORT] = (struct magic_header) {
++		.start = MESSAGE_DATA,
++		.end = MESSAGE_DATA
++	};
+ }
+ 
+ static int wg_newlink(struct net *src_net, struct net_device *dev,
+@@ -377,11 +403,6 @@ static int wg_newlink(struct net *src_net, struct net_device *dev,
+ 	 */
+ 	dev->priv_destructor = wg_destruct;
+ 
+-	wg->advanced_security_config.init_packet_magic_header = MESSAGE_HANDSHAKE_INITIATION;
+-	wg->advanced_security_config.response_packet_magic_header = MESSAGE_HANDSHAKE_RESPONSE;
+-	wg->advanced_security_config.cookie_packet_magic_header = MESSAGE_HANDSHAKE_COOKIE;
+-	wg->advanced_security_config.transport_packet_magic_header = MESSAGE_DATA;
+-
+ 	pr_debug("%s: Interface created\n", dev->name);
+ 	return ret;
+ 
+@@ -479,117 +500,69 @@ void wg_device_uninit(void)
+ 	rcu_barrier();
+ }
+ 
+-int wg_device_handle_post_config(struct net_device *dev, struct amnezia_config *asc)
++int wg_device_handle_post_config(struct wg_device *wg)
+ {
+-	struct wg_device *wg = netdev_priv(dev);
+-	bool a_sec_on = false;
+-	int ret = 0;
++	int err;
++	int i, j;
+ 
+-	if (!asc->advanced_security)
+-		goto out;
++	if (!wg->advanced_security)
++		return 0;
+ 
+-	if (asc->junk_packet_count < 0) {
+-		net_dbg_ratelimited("%s: JunkPacketCount should be non negative\n", dev->name);
+-		ret = -EINVAL;
++	if (wg->jc < 0) {
++		net_dbg_ratelimited("%s: JunkPacketCount should be non negative\n", wg->dev->name);
++		return -EINVAL;
+ 	}
+ 
+-	wg->advanced_security_config.junk_packet_count = asc->junk_packet_count;
+-	if (asc->junk_packet_count != 0)
+-		a_sec_on = true;
+-
+-	wg->advanced_security_config.junk_packet_min_size = asc->junk_packet_min_size;
+-	if (asc->junk_packet_min_size != 0)
+-		a_sec_on = true;
+-
+-	if (asc->junk_packet_count > 0 && asc->junk_packet_min_size == asc->junk_packet_max_size)
+-		asc->junk_packet_max_size++;
+-
+-	if (asc->junk_packet_max_size >= MESSAGE_MAX_SIZE) {
+-		wg->advanced_security_config.junk_packet_min_size = 0;
+-		wg->advanced_security_config.junk_packet_max_size = 1;
++	if (wg->jc && wg->jmin == wg->jmax)
++		wg->jmax++;
+ 
++	if (wg->jmax >= MESSAGE_MAX_SIZE) {
+ 		net_dbg_ratelimited("%s: JunkPacketMaxSize: %d; should be smaller than maxSegmentSize: %d\n",
+-							dev->name, asc->junk_packet_max_size,
+-							MESSAGE_MAX_SIZE);
+-		ret = -EINVAL;
+-	} else if (asc->junk_packet_max_size < asc->junk_packet_min_size) {
+-		net_dbg_ratelimited("%s: maxSize: %d; should be greater than minSize: %d\n",
+-							dev->name, asc->junk_packet_max_size,
+-							asc->junk_packet_min_size);
+-		ret = -EINVAL;
+-	} else
+-		wg->advanced_security_config.junk_packet_max_size = asc->junk_packet_max_size;
+-
+-	if (asc->junk_packet_max_size != 0)
+-		a_sec_on = true;
+-
+-	if (asc->init_packet_junk_size + MESSAGE_INITIATION_SIZE >= MESSAGE_MAX_SIZE) {
+-		net_dbg_ratelimited("%s: init header size (%d) + junkSize (%d) should be smaller than maxSegmentSize: %d\n",
+-		                    dev->name, MESSAGE_INITIATION_SIZE,
+-							asc->init_packet_junk_size, MESSAGE_MAX_SIZE);
+-		ret = -EINVAL;
+-	} else
+-		wg->advanced_security_config.init_packet_junk_size = asc->init_packet_junk_size;
+-
+-	if (asc->init_packet_junk_size != 0)
+-		a_sec_on = true;
+-
+-	if (asc->response_packet_junk_size + MESSAGE_RESPONSE_SIZE >= MESSAGE_MAX_SIZE) {
+-		net_dbg_ratelimited("%s: response header size (%d) + junkSize (%d) should be smaller than maxSegmentSize: %d\n",
+-		                    dev->name, MESSAGE_RESPONSE_SIZE,
+-		                    asc->response_packet_junk_size, MESSAGE_MAX_SIZE);
+-		ret = -EINVAL;
+-	} else
+-		wg->advanced_security_config.response_packet_junk_size = asc->response_packet_junk_size;
+-
+-	if (asc->response_packet_junk_size != 0)
+-		a_sec_on = true;
+-
+-	if (asc->init_packet_magic_header > MESSAGE_DATA) {
+-		a_sec_on = true;
+-		wg->advanced_security_config.init_packet_magic_header = asc->init_packet_magic_header;
++							wg->dev->name, wg->jmax, MESSAGE_MAX_SIZE);
++		return -EINVAL;
+ 	}
+ 
+-	if (asc->response_packet_magic_header > MESSAGE_DATA) {
+-		a_sec_on = true;
+-		wg->advanced_security_config.response_packet_magic_header = asc->response_packet_magic_header;
++	if (wg->jmax && wg->jmax < wg->jmin) {
++		net_dbg_ratelimited("%s: maxSize: %d; should be greater than minSize: %d\n",
++							wg->dev->name, wg->jmax, wg->jmin);
++		return -EINVAL;
+ 	}
+ 
+-	if (asc->cookie_packet_magic_header > MESSAGE_DATA) {
+-		a_sec_on = true;
+-		wg->advanced_security_config.cookie_packet_magic_header = asc->cookie_packet_magic_header;
+-	}
++	wg->msg_size[MSGIDX_HANDSHAKE_INIT] = MESSAGE_INITIATION_SIZE + wg->junk_size[MSGIDX_HANDSHAKE_INIT];
++	wg->msg_size[MSGIDX_HANDSHAKE_RESPONSE] = MESSAGE_RESPONSE_SIZE + wg->junk_size[MSGIDX_HANDSHAKE_RESPONSE];
++	wg->msg_size[MSGIDX_HANDSHAKE_COOKIE] = MESSAGE_COOKIE_REPLY_SIZE + wg->junk_size[MSGIDX_HANDSHAKE_COOKIE];
+ 
+-	if (asc->transport_packet_magic_header > MESSAGE_DATA) {
+-		a_sec_on = true;
+-		wg->advanced_security_config.transport_packet_magic_header = asc->transport_packet_magic_header;
++	for (i = 0; i < ARRAY_SIZE(wg->msg_size); ++i) {
++		if (wg->msg_size[i] > MESSAGE_MAX_SIZE) {
++			net_dbg_ratelimited("%s: S%d is too large\n", wg->dev->name, i + 1);
++			return -EINVAL;
++		}
++
++		for (j = i + 1; j < ARRAY_SIZE(wg->msg_size); ++j) {
++			if (wg->msg_size[i] == wg->msg_size[j]) {
++				net_dbg_ratelimited("%s: combination of S%d and S%d gives the same signature size\n", wg->dev->name, i + 1, j + 1);
++				return -EINVAL;
++			}
++		}
+ 	}
+ 
+-	if (wg->advanced_security_config.init_packet_magic_header == wg->advanced_security_config.response_packet_magic_header ||
+-			wg->advanced_security_config.init_packet_magic_header == wg->advanced_security_config.cookie_packet_magic_header ||
+-			wg->advanced_security_config.init_packet_magic_header == wg->advanced_security_config.transport_packet_magic_header ||
+-			wg->advanced_security_config.response_packet_magic_header == wg->advanced_security_config.cookie_packet_magic_header ||
+-			wg->advanced_security_config.response_packet_magic_header == wg->advanced_security_config.transport_packet_magic_header ||
+-			wg->advanced_security_config.cookie_packet_magic_header == wg->advanced_security_config.transport_packet_magic_header) {
+-		net_dbg_ratelimited("%s: magic headers should differ; got: init:%d; recv:%d; unde:%d; tran:%d\n",
+-		                    dev->name,
+-							wg->advanced_security_config.init_packet_magic_header,
+-		                    wg->advanced_security_config.response_packet_magic_header,
+-							wg->advanced_security_config.cookie_packet_magic_header,
+-							wg->advanced_security_config.transport_packet_magic_header);
+-		ret = -EINVAL;
++	for (i = 0; i < ARRAY_SIZE(wg->headers); ++i) {
++		for (j = i + 1; j < ARRAY_SIZE(wg->headers); ++j) {
++			if (!(wg->headers[j].end < wg->headers[i].start ||
++				  wg->headers[i].end < wg->headers[j].start)) {
++				net_dbg_ratelimited("%s: H%d and H%d ranges must not overlap\n", wg->dev->name, i + 1, j + 1);
++				return -EINVAL;
++			}
++		}
+ 	}
+ 
+-	if (MESSAGE_INITIATION_SIZE + wg->advanced_security_config.init_packet_junk_size ==
+-		MESSAGE_RESPONSE_SIZE + wg->advanced_security_config.response_packet_junk_size) {
+-		net_dbg_ratelimited("%s: new init size:%d; and new response size:%d; should differ\n",
+-		                    dev->name,
+-		                    MESSAGE_INITIATION_SIZE + asc->init_packet_junk_size,
+-		                    MESSAGE_RESPONSE_SIZE + asc->response_packet_junk_size);
+-		ret = -EINVAL;
++	for (int i = 0; i < ARRAY_SIZE(wg->ispecs); ++i) {
++		err = jp_spec_setup(&wg->ispecs[i]);
++		if (err) {
++			net_dbg_ratelimited("%s: I%d-packet invalid format\n", wg->dev->name, i + 1);
++			return err;
++		}
+ 	}
+ 
+-	wg->advanced_security_config.advanced_security = a_sec_on;
+-out:
+-	return ret;
++	return 0;
+ }
+diff --git device.h device.h
+index 9bffb47..9c3ead7 100644
+--- device.h
++++ device.h
+@@ -6,10 +6,12 @@
+ #ifndef _WG_DEVICE_H
+ #define _WG_DEVICE_H
+ 
++#include "junk.h"
+ #include "noise.h"
+ #include "allowedips.h"
+ #include "peerlookup.h"
+ #include "cookie.h"
++#include "magic_header.h"
+ 
+ #include <linux/types.h>
+ #include <linux/netdevice.h>
+@@ -37,19 +39,6 @@ struct prev_queue {
+ 	atomic_t count;
+ };
+ 
+-struct amnezia_config {
+-	bool advanced_security;
+-	u16 junk_packet_count;
+-	u16 junk_packet_min_size;
+-	u16 junk_packet_max_size;
+-	u16 init_packet_junk_size;
+-	u16 response_packet_junk_size;
+-	u32 init_packet_magic_header;
+-	u32 response_packet_magic_header;
+-	u32 cookie_packet_magic_header;
+-	u32 transport_packet_magic_header;
+-};
+-
+ struct wg_device {
+ 	struct net_device *dev;
+ 	struct crypt_queue encrypt_queue, decrypt_queue, handshake_queue;
+@@ -63,15 +52,23 @@ struct wg_device {
+ 	struct allowedips peer_allowedips;
+ 	struct mutex device_update_lock, socket_update_lock;
+ 	struct list_head device_list, peer_list;
+-	struct amnezia_config advanced_security_config;
+ 	atomic_t handshake_queue_len;
+ 	unsigned int num_peers, device_update_gen;
+ 	u32 fwmark;
+ 	u16 incoming_port;
++
++	struct jp_spec ispecs[5];
++	struct magic_header headers[4];
++	int msg_size[3];
++	u16 junk_size[4];
++	u16 jc;
++	u16 jmin;
++	u16 jmax;
++	bool advanced_security;
+ };
+ 
+ int wg_device_init(void);
+ void wg_device_uninit(void);
+-int wg_device_handle_post_config(struct net_device *dev, struct amnezia_config *asc);
++int wg_device_handle_post_config(struct wg_device *wg);
+ 
+ #endif /* _WG_DEVICE_H */
+diff --git junk.c junk.c
+index e69de29..7253118 100644
+--- junk.c
++++ junk.c
+@@ -0,0 +1,333 @@
++#include "junk.h"
++
++#include "messages.h"
++
++#include <linux/list.h>
++#include <linux/slab.h>
++#include <linux/string.h>
++#include <linux/random.h>
++#include <linux/ktime.h>
++
++static int parse_b_tag(char* val, struct list_head* head) {
++    int err;
++    int i;
++    int len;
++    u8* pkt;
++    struct jp_tag* tag;
++
++    if (!val || strncmp(val, "0x", 2))
++        return -EINVAL;
++    val += 2;
++
++    len = strlen(val);
++    if (len == 0 || len % 2 != 0)
++        return -EINVAL;
++    len /= 2;
++
++    pkt = kmalloc(len, GFP_KERNEL);
++    if (!pkt)
++        return -ENOMEM;
++
++    for (i = len - 1; i >= 0; --i) {
++        err = kstrtou8(val + i * 2, 16, pkt + i);
++        if (err) {
++            err = -EINVAL;
++            goto error;
++        }
++
++        val[i * 2] = '\0';
++    }
++
++    tag = kzalloc(sizeof(*tag), GFP_KERNEL);
++    if (!tag) {
++        err = -ENOMEM;
++        goto error;
++    }
++
++    tag->pkt = pkt;
++    tag->pkt_size = len;
++
++    list_add(&tag->head, head);
++    return 0;
++
++error:
++    kfree(pkt);
++    return err;
++}
++
++static void pkt_counter_modifier(char* buf, int _) {
++    static atomic_t cnt = ATOMIC_INIT(0);
++    int val;
++
++    val = atomic_read(&cnt);
++    val = htonl(val);
++    memcpy(buf, &val, sizeof(val));
++
++    atomic_inc(&cnt);
++}
++
++static int parse_c_tag(char* val, struct list_head* head) {
++    struct jp_tag* tag;
++
++    if (val)
++        return -EINVAL;
++
++    tag = kzalloc(sizeof(*tag), GFP_KERNEL);
++    if (!tag)
++        return -ENOMEM;
++
++    tag->pkt_size = sizeof(u32);
++    tag->func = pkt_counter_modifier;
++
++    list_add(&tag->head, head);
++    return 0;
++}
++
++static void unix_time_modifier(char* buf, int _) {
++    u32 time = (u32)ktime_get_real_seconds();
++    time = htonl(time);
++    memcpy(buf, &time, sizeof(time));
++}
++
++static int parse_t_tag(char* val, struct list_head* head) {
++    struct jp_tag* tag;
++
++    if (val)
++        return -EINVAL;
++
++    tag = kzalloc(sizeof(*tag), GFP_KERNEL);
++    if (!tag)
++        return -ENOMEM;
++
++    tag->pkt_size = sizeof(u32);
++    tag->func = unix_time_modifier;
++
++    list_add(&tag->head, head);
++    return 0;
++}
++
++static void random_byte_modifier(char* buf, int len) {
++    get_random_bytes(buf, len);
++}
++
++static int parse_r_tag(char* val, struct list_head* head) {
++    struct jp_tag* tag;
++    int len;
++
++    if (!val || 0 > kstrtoint(val, 10, &len))
++        return -EINVAL;
++
++    tag = kzalloc(sizeof(*tag), GFP_KERNEL);
++    if (!tag)
++        return -ENOMEM;
++
++    tag->pkt_size = len;
++    tag->func = random_byte_modifier;
++
++    list_add(&tag->head, head);
++    return 0;
++}
++
++#define ALPHABET_LEN 26
++#define LETTER_LEN (ALPHABET_LEN * 2)
++
++static void random_char_modifier(char* buf, int len) {
++    int i;
++    u32 byte;
++
++    for (i = 0; i < len; ++i) {
++        byte = get_random_u32() % LETTER_LEN;
++        buf[i] = (byte < ALPHABET_LEN) ? 'a' + byte : 'A' + byte - ALPHABET_LEN;
++    }
++}
++
++static int parse_rc_tag(char* val, struct list_head* head) {
++    struct jp_tag* tag;
++    int len;
++
++    if (!val || 0 > kstrtoint(val, 10, &len))
++        return -EINVAL;
++
++    tag = kzalloc(sizeof(*tag), GFP_KERNEL);
++    if (!tag)
++        return -ENOMEM;
++
++    tag->pkt_size = len;
++    tag->func = random_char_modifier;
++
++    list_add(&tag->head, head);
++    return 0;
++}
++
++#define DIGIT_LEN 10
++
++static void random_digit_modifier(char* buf, int len) {
++    int i;
++
++    for (i = 0; i < len; ++i)
++        buf[i] = '0' + get_random_u32() % DIGIT_LEN;
++}
++
++static int parse_rd_tag(char* val, struct list_head* head) {
++    struct jp_tag* tag;
++    int len;
++
++    if (!val || 0 > kstrtoint(val, 10, &len))
++        return -EINVAL;
++
++    tag = kzalloc(sizeof(*tag), GFP_KERNEL);
++    if (!tag)
++        return -ENOMEM;
++
++    tag->pkt_size = len;
++    tag->func = random_digit_modifier;
++
++    list_add(&tag->head, head);
++    return 0;
++}
++
++int jp_parse_tags(char* str, struct list_head* head) {
++    int err = 0;
++    char* key;
++    char* val;
++
++    while (true)
++    {
++        strsep(&str, "<");
++        val = strsep(&str, ">");
++        if (!val)
++            break;
++
++        key = strsep(&val, " ");
++
++        if (!strcmp(key, "b")) {
++            err = parse_b_tag(val, head);
++            if (err)
++                return err;
++        }
++        else if (!strcmp(key, "c")) {
++            err = parse_c_tag(val, head);
++            if (err)
++                return err;
++        }
++        else if (!strcmp(key, "t")) {
++            err = parse_t_tag(val, head);
++            if (err)
++                return err;
++        }
++        else if (!strcmp(key, "r")) {
++            err = parse_r_tag(val, head);
++            if (err)
++                return err;
++        }
++        else if (!strcmp(key, "rc")) {
++            err = parse_rc_tag(val, head);
++            if (err)
++                return err;
++        }
++        else if (!strcmp(key, "rd")) {
++            err = parse_rd_tag(val, head);
++            if (err)
++                return err;
++        }
++        else
++            return -EINVAL;
++    }
++
++    return 0;
++}
++
++void jp_tag_free(struct jp_tag* tag) {
++    kfree(tag->pkt);
++}
++
++void jp_spec_free(struct jp_spec *spec) {
++    kfree(spec->pkt);
++    kfree(spec->mods);
++}
++
++int jp_spec_setup(struct jp_spec *spec) {
++    int err = 0;
++    int pkt_size, mods_size;
++    struct jp_tag *tag, *tmp;
++    struct jp_modifier *mod;
++    char* buf;
++    LIST_HEAD(head);
++
++    mutex_init(&spec->lock);
++
++    if (spec->desc == NULL)
++        return 0;
++
++    mutex_lock(&spec->lock);
++
++    buf = kstrdup(spec->desc, GFP_KERNEL);
++    if (!buf) {
++        err = -ENOMEM;
++        goto error;
++    }
++
++    err = jp_parse_tags(buf, &head);
++    if (err)
++        goto error;
++
++    pkt_size = 0;
++    mods_size = 0;
++
++    list_for_each_entry(tag, &head, head) {
++        pkt_size += tag->pkt_size;
++
++        if (tag->func)
++            ++mods_size;
++    }
++
++    if (pkt_size > MESSAGE_MAX_SIZE) {
++        err = -EINVAL;
++        goto error;
++    }
++
++    spec->pkt = kzalloc(pkt_size, GFP_KERNEL);
++    spec->mods = kzalloc(mods_size * sizeof(*spec->mods), GFP_KERNEL);
++    if (!spec->pkt || !spec->mods) {
++        err = -ENOMEM;
++        goto error;
++    }
++
++    list_for_each_entry_reverse(tag, &head, head) {
++        if (tag->pkt) {
++            memcpy(spec->pkt + spec->pkt_size, tag->pkt, tag->pkt_size);
++        }
++
++        if (tag->func) {
++            mod = spec->mods + spec->mods_size;
++            mod->func = tag->func;
++            mod->buf = spec->pkt + spec->pkt_size;
++            mod->buf_len = tag->pkt_size;
++            
++            spec->mods_size++;
++        }
++
++        spec->pkt_size += tag->pkt_size;
++    }
++
++error:
++    list_for_each_entry_safe(tag, tmp, &head, head) {
++        jp_tag_free(tag);
++        list_del(&tag->head);
++        kfree(tag);
++    }
++    kfree(buf);
++    mutex_unlock(&spec->lock);
++    return err;
++}
++
++void jp_spec_applymods(struct jp_spec* spec) {
++    int i;
++    struct jp_modifier* mod;
++
++    for (i = 0; i < spec->mods_size; i++) {
++        mod = &spec->mods[i];
++        if(mod->func)
++            mod->func(mod->buf, mod->buf_len);
++    }
++}
+diff --git junk.h junk.h
+index e69de29..2847f04 100644
+--- junk.h
++++ junk.h
+@@ -0,0 +1,41 @@
++#ifndef _AWG_JUNK_H
++#define _AWG_JUNK_H
++
++#include <linux/list.h>
++#include <linux/mutex.h>
++
++typedef void(*jp_modifier_func)(char*, int);
++
++struct jp_tag
++{
++    u8* pkt;
++    jp_modifier_func func;
++    struct list_head head;
++    int pkt_size;
++};
++
++void jp_tag_free(struct jp_tag* tag);
++int jp_parse_tags(char* str, struct list_head* head);
++
++struct jp_modifier
++{
++    jp_modifier_func func;
++    char* buf;
++    int buf_len;
++};
++
++struct jp_spec
++{
++    char* desc;
++    u8* pkt;
++    struct jp_modifier* mods;
++    struct mutex lock;
++    int pkt_size;
++    int mods_size;
++};
++
++void jp_spec_free(struct jp_spec* spec);
++int jp_spec_setup(struct jp_spec* spec);
++void jp_spec_applymods(struct jp_spec* spec);
++
++#endif
+\ No newline at end of file
+diff --git magic_header.c magic_header.c
+index e69de29..0391afd 100644
+--- magic_header.c
++++ magic_header.c
+@@ -0,0 +1,50 @@
++#include "magic_header.h"
++
++#include <linux/string.h>
++#include <linux/kstrtox.h>
++#include <linux/sprintf.h>
++#include <linux/random.h>
++
++int mh_parse(struct magic_header *mh, char *desc) {
++    int err;
++    char* val;
++
++    val = strsep(&desc, "-");
++    if (!val)
++        return -EINVAL;
++
++    err = kstrtouint(val, 10, &mh->start);
++    if (err)
++        return err;
++
++    if (desc)
++    {
++        err = kstrtouint(desc, 10, &mh->end);
++        if (err)
++            return err;
++    }
++    else
++    {
++        mh->end = mh->start;
++    }
++
++    if (mh->start > mh->end)
++        return -EINVAL;
++
++    return 0;
++}
++
++int mh_genspec(struct magic_header *mh, char *buf, size_t buflen) {
++    if (mh->start == mh->end)
++        return scnprintf(buf, buflen, "%u", mh->start);
++    return scnprintf(buf, buflen, "%u-%u", mh->start, mh->end);
++}
++
++bool mh_validate(__le32 received, struct magic_header* mh) {
++    u32 received_host = le32_to_cpu(received);
++	return received_host >= mh->start && received_host <= mh->end;
++}
++
++u32 mh_genheader(struct magic_header *mh) {
++    return get_random_u32_inclusive(mh->start, mh->end);
++}
+\ No newline at end of file
+diff --git magic_header.h magic_header.h
+index e69de29..a2472ce 100644
+--- magic_header.h
++++ magic_header.h
+@@ -0,0 +1,17 @@
++#ifndef H_MAGIC_HEADER
++#define H_MAGIC_HEADER
++
++#include <linux/types.h>
++
++struct magic_header {
++    u32 start;
++    u32 end;
++};
++
++int mh_parse(struct magic_header *mh, char *desc);
++int mh_genspec(struct magic_header *mh, char *desc, size_t buflen);
++
++bool mh_validate(__le32 received, struct magic_header* mh);
++u32 mh_genheader(struct magic_header* mh);
++
++#endif
+\ No newline at end of file
+diff --git messages.h messages.h
+index aa9f845..fcefd2c 100644
+--- messages.h
++++ messages.h
+@@ -61,6 +61,13 @@ enum message_type {
+ 	MESSAGE_DATA = 4
+ };
+ 
++enum message_index {
++	MSGIDX_HANDSHAKE_INIT = MESSAGE_HANDSHAKE_INITIATION - 1,
++	MSGIDX_HANDSHAKE_RESPONSE = MESSAGE_HANDSHAKE_RESPONSE - 1,
++	MSGIDX_HANDSHAKE_COOKIE = MESSAGE_HANDSHAKE_COOKIE - 1,
++	MSGIDX_TRANSPORT = MESSAGE_DATA - 1
++};
++
+ struct message_header {
+ 	/* The actual layout of this that we want is:
+ 	 * u8 type
+diff --git netlink.c netlink.c
+index 70cdd72..63490d1 100644
+--- netlink.c
++++ netlink.c
+@@ -5,6 +5,7 @@
+ 
+ #include "netlink.h"
+ #include "device.h"
++#include "magic_header.h"
+ #include "peer.h"
+ #include "socket.h"
+ #include "queueing.h"
+@@ -46,11 +47,18 @@ static const struct nla_policy device_policy[WGDEVICE_A_MAX + 1] = {
+ 	[WGDEVICE_A_JMAX]		= { .type = NLA_U16 },
+ 	[WGDEVICE_A_S1]		= { .type = NLA_U16 },
+ 	[WGDEVICE_A_S2]		= { .type = NLA_U16 },
+-	[WGDEVICE_A_H1]		= { .type = NLA_U32 },
+-	[WGDEVICE_A_H2]		= { .type = NLA_U32 },
+-	[WGDEVICE_A_H3]		= { .type = NLA_U32 },
+-	[WGDEVICE_A_H4]		= { .type = NLA_U32 },
+-	[WGDEVICE_A_PEER]		= { .type = NLA_NESTED }
++	[WGDEVICE_A_H1]		= { .type = NLA_NUL_STRING },
++	[WGDEVICE_A_H2]		= { .type = NLA_NUL_STRING },
++	[WGDEVICE_A_H3]		= { .type = NLA_NUL_STRING },
++	[WGDEVICE_A_H4]		= { .type = NLA_NUL_STRING },
++	[WGDEVICE_A_PEER]	= { .type = NLA_NESTED },
++	[WGDEVICE_A_S3]		= { .type = NLA_U16 },
++	[WGDEVICE_A_S4]		= { .type = NLA_U16 },
++	[WGDEVICE_A_I1]		= { .type = NLA_NUL_STRING },
++	[WGDEVICE_A_I2]		= { .type = NLA_NUL_STRING },
++	[WGDEVICE_A_I3]		= { .type = NLA_NUL_STRING },
++	[WGDEVICE_A_I4]		= { .type = NLA_NUL_STRING },
++	[WGDEVICE_A_I5]		= { .type = NLA_NUL_STRING }
+ };
+ 
+ static const struct nla_policy peer_policy[WGPEER_A_MAX + 1] = {
+@@ -408,6 +416,7 @@ static int wg_get_device_dump(struct sk_buff *skb, struct netlink_callback *cb)
+ 	int ret = -EMSGSIZE;
+ 	bool done = true;
+ 	void *hdr;
++	char buf[32];
+ 
+ 	rtnl_lock();
+ 	mutex_lock(&wg->device_update_lock);
+@@ -426,24 +435,31 @@ static int wg_get_device_dump(struct sk_buff *skb, struct netlink_callback *cb)
+ 		    nla_put_u32(skb, WGDEVICE_A_FWMARK, wg->fwmark) ||
+ 		    nla_put_u32(skb, WGDEVICE_A_IFINDEX, wg->dev->ifindex) ||
+ 		    nla_put_string(skb, WGDEVICE_A_IFNAME, wg->dev->name) ||
+-		    nla_put_u16(skb, WGDEVICE_A_JC,
+-					    wg->advanced_security_config.junk_packet_count) ||
+-		    nla_put_u16(skb, WGDEVICE_A_JMIN,
+-					    wg->advanced_security_config.junk_packet_min_size) ||
+-		    nla_put_u16(skb, WGDEVICE_A_JMAX,
+-					    wg->advanced_security_config.junk_packet_max_size) ||
+-		    nla_put_u16(skb, WGDEVICE_A_S1,
+-					    wg->advanced_security_config.init_packet_junk_size) ||
+-		    nla_put_u16(skb, WGDEVICE_A_S2,
+-					    wg->advanced_security_config.response_packet_junk_size) ||
+-		    nla_put_u32(skb, WGDEVICE_A_H1,
+-					    wg->advanced_security_config.init_packet_magic_header) ||
+-		    nla_put_u32(skb, WGDEVICE_A_H2,
+-					    wg->advanced_security_config.response_packet_magic_header) ||
+-		    nla_put_u32(skb, WGDEVICE_A_H3,
+-					    wg->advanced_security_config.cookie_packet_magic_header) ||
+-		    nla_put_u32(skb, WGDEVICE_A_H4,
+-					    wg->advanced_security_config.transport_packet_magic_header))
++		    nla_put_u16(skb, WGDEVICE_A_JC, wg->jc) ||
++		    nla_put_u16(skb, WGDEVICE_A_JMIN, wg->jmin) ||
++		    nla_put_u16(skb, WGDEVICE_A_JMAX, wg->jmax) ||
++		    nla_put_u16(skb, WGDEVICE_A_S1, wg->junk_size[MSGIDX_HANDSHAKE_INIT]) ||
++		    nla_put_u16(skb, WGDEVICE_A_S2,wg->junk_size[MSGIDX_HANDSHAKE_RESPONSE]) ||
++		    (mh_genspec(&wg->headers[MSGIDX_HANDSHAKE_INIT], buf, sizeof(buf)) &&
++				nla_put_string(skb, WGDEVICE_A_H1, buf)) ||
++			(mh_genspec(&wg->headers[MSGIDX_HANDSHAKE_RESPONSE], buf, sizeof(buf)) &&
++				nla_put_string(skb, WGDEVICE_A_H2, buf)) ||
++			(mh_genspec(&wg->headers[MSGIDX_HANDSHAKE_COOKIE], buf, sizeof(buf)) &&
++				nla_put_string(skb, WGDEVICE_A_H3, buf)) ||
++			(mh_genspec(&wg->headers[MSGIDX_TRANSPORT], buf, sizeof(buf)) &&
++				nla_put_string(skb, WGDEVICE_A_H4, buf)) ||
++			nla_put_u16(skb, WGDEVICE_A_S3, wg->junk_size[MSGIDX_HANDSHAKE_COOKIE]) ||
++			nla_put_u16(skb, WGDEVICE_A_S4, wg->junk_size[MSGIDX_TRANSPORT]) ||
++			(wg->ispecs[0].desc &&
++				nla_put_string(skb, WGDEVICE_A_I1, wg->ispecs[0].desc)) ||
++			(wg->ispecs[1].desc &&
++				nla_put_string(skb, WGDEVICE_A_I2, wg->ispecs[1].desc)) ||
++			(wg->ispecs[2].desc &&
++				nla_put_string(skb, WGDEVICE_A_I3, wg->ispecs[2].desc)) ||
++			(wg->ispecs[3].desc &&
++				nla_put_string(skb, WGDEVICE_A_I4, wg->ispecs[3].desc)) ||
++			(wg->ispecs[4].desc &&
++				nla_put_string(skb, WGDEVICE_A_I5, wg->ispecs[4].desc)))
+ 			goto out;
+ 
+ 		down_read(&wg->static_identity.lock);
+@@ -691,7 +707,7 @@ static int set_peer(struct wg_device *wg, struct nlattr **attrs)
+ 	}
+ 
+ 	if (flags & WGPEER_F_HAS_ADVANCED_SECURITY) {
+-		peer->advanced_security = wg->advanced_security_config.advanced_security &&
++		peer->advanced_security = wg->advanced_security &&
+ 				nla_get_flag(attrs[WGPEER_A_ADVANCED_SECURITY]);
+ 	}
+ 
+@@ -709,9 +725,9 @@ out:
+ static int wg_set_device(struct sk_buff *skb, struct genl_info *info)
+ {
+ 	struct wg_device *wg = lookup_interface(info->attrs, skb);
+-	struct amnezia_config *asc = kzalloc(sizeof(*asc), GFP_KERNEL);
+ 	u32 flags = 0;
+ 	int ret;
++	char *str;
+ 
+ 	if (IS_ERR(wg)) {
+ 		ret = PTR_ERR(wg);
+@@ -755,48 +771,99 @@ static int wg_set_device(struct sk_buff *skb, struct genl_info *info)
+ 	}
+ 
+ 	if (info->attrs[WGDEVICE_A_JC]) {
+-		asc->advanced_security = true;
+-		asc->junk_packet_count = nla_get_u16(info->attrs[WGDEVICE_A_JC]);
++		wg->advanced_security = true;
++		wg->jc = nla_get_u16(info->attrs[WGDEVICE_A_JC]);
+ 	}
+ 
+ 	if (info->attrs[WGDEVICE_A_JMIN]) {
+-		asc->advanced_security = true;
+-		asc->junk_packet_min_size = nla_get_u16(info->attrs[WGDEVICE_A_JMIN]);
++		wg->advanced_security = true;
++		wg->jmin = nla_get_u16(info->attrs[WGDEVICE_A_JMIN]);
+ 	}
+ 
+ 	if (info->attrs[WGDEVICE_A_JMAX]) {
+-		asc->advanced_security = true;
+-		asc->junk_packet_max_size = nla_get_u16(info->attrs[WGDEVICE_A_JMAX]);
++		wg->advanced_security = true;
++		wg->jmax = nla_get_u16(info->attrs[WGDEVICE_A_JMAX]);
+ 	}
+ 
+ 	if (info->attrs[WGDEVICE_A_S1]) {
+-		asc->advanced_security = true;
+-		asc->init_packet_junk_size = nla_get_u16(info->attrs[WGDEVICE_A_S1]);
++		wg->advanced_security = true;
++		wg->junk_size[MSGIDX_HANDSHAKE_INIT] = nla_get_u16(info->attrs[WGDEVICE_A_S1]);
+ 	}
+ 
+ 	if (info->attrs[WGDEVICE_A_S2]) {
+-		asc->advanced_security = true;
+-		asc->response_packet_junk_size = nla_get_u16(info->attrs[WGDEVICE_A_S2]);
++		wg->advanced_security = true;
++		wg->junk_size[MSGIDX_HANDSHAKE_RESPONSE] = nla_get_u16(info->attrs[WGDEVICE_A_S2]);
+ 	}
+ 
+ 	if (info->attrs[WGDEVICE_A_H1]) {
+-		asc->advanced_security = true;
+-		asc->init_packet_magic_header = nla_get_u32(info->attrs[WGDEVICE_A_H1]);
++		wg->advanced_security = true;
++		str = nla_strdup(info->attrs[WGDEVICE_A_H1], GFP_KERNEL);
++		ret = mh_parse(&wg->headers[MSGIDX_HANDSHAKE_INIT], str);
++		kfree(str);
++		if (ret)
++			goto out;
+ 	}
+ 
+ 	if (info->attrs[WGDEVICE_A_H2]) {
+-		asc->advanced_security = true;
+-		asc->response_packet_magic_header = nla_get_u32(info->attrs[WGDEVICE_A_H2]);
++		wg->advanced_security = true;
++		str = nla_strdup(info->attrs[WGDEVICE_A_H2], GFP_KERNEL);
++		ret = mh_parse(&wg->headers[MSGIDX_HANDSHAKE_RESPONSE], str);
++		kfree(str);
++		if (ret)
++			goto out;
+ 	}
+ 
+ 	if (info->attrs[WGDEVICE_A_H3]) {
+-		asc->advanced_security = true;
+-		asc->cookie_packet_magic_header = nla_get_u32(info->attrs[WGDEVICE_A_H3]);
++		wg->advanced_security = true;
++		str = nla_strdup(info->attrs[WGDEVICE_A_H3], GFP_KERNEL);
++		ret = mh_parse(&wg->headers[MSGIDX_HANDSHAKE_COOKIE], str);
++		kfree(str);
++		if (ret)
++			goto out;
+ 	}
+ 
+ 	if (info->attrs[WGDEVICE_A_H4]) {
+-		asc->advanced_security = true;
+-		asc->transport_packet_magic_header = nla_get_u32(info->attrs[WGDEVICE_A_H4]);
++		wg->advanced_security = true;
++		str = nla_strdup(info->attrs[WGDEVICE_A_H4], GFP_KERNEL);
++		ret = mh_parse(&wg->headers[MSGIDX_TRANSPORT], str);
++		kfree(str);
++		if (ret)
++			goto out;
++	}
++
++	if (info->attrs[WGDEVICE_A_S3]) {
++		wg->advanced_security = true;
++		wg->junk_size[MSGIDX_HANDSHAKE_COOKIE] = nla_get_u16(info->attrs[WGDEVICE_A_S3]);
++	}
++
++	if (info->attrs[WGDEVICE_A_S4]) {
++		wg->advanced_security = true;
++		wg->junk_size[MSGIDX_TRANSPORT] = nla_get_u16(info->attrs[WGDEVICE_A_S4]);
++	}
++
++	if (info->attrs[WGDEVICE_A_I1]) {
++		wg->advanced_security = true;
++		wg->ispecs[0].desc = nla_strdup(info->attrs[WGDEVICE_A_I1], GFP_KERNEL);
++	}
++
++	if (info->attrs[WGDEVICE_A_I2]) {
++		wg->advanced_security = true;
++		wg->ispecs[1].desc = nla_strdup(info->attrs[WGDEVICE_A_I2], GFP_KERNEL);
++	}
++
++	if (info->attrs[WGDEVICE_A_I3]) {
++		wg->advanced_security = true;
++		wg->ispecs[2].desc = nla_strdup(info->attrs[WGDEVICE_A_I3], GFP_KERNEL);
++	}
++
++	if (info->attrs[WGDEVICE_A_I4]) {
++		wg->advanced_security = true;
++		wg->ispecs[3].desc = nla_strdup(info->attrs[WGDEVICE_A_I4], GFP_KERNEL);
++	}
++
++	if (info->attrs[WGDEVICE_A_I5]) {
++		wg->advanced_security = true;
++		wg->ispecs[4].desc = nla_strdup(info->attrs[WGDEVICE_A_I5], GFP_KERNEL);
+ 	}
+ 
+ 	if (flags & WGDEVICE_F_REPLACE_PEERS)
+@@ -838,7 +905,7 @@ static int wg_set_device(struct sk_buff *skb, struct genl_info *info)
+ 	}
+ skip_set_private_key:
+ 
+-	ret = wg_device_handle_post_config(wg->dev, asc);
++	ret = wg_device_handle_post_config(wg);
+ 	if (ret < 0)
+ 		goto out;
+ 
+@@ -862,7 +929,6 @@ out:
+ 	rtnl_unlock();
+ 	dev_put(wg->dev);
+ out_nodev:
+-	kfree(asc);
+ 	if (info->attrs[WGDEVICE_A_PRIVATE_KEY])
+ 		memzero_explicit(nla_data(info->attrs[WGDEVICE_A_PRIVATE_KEY]),
+ 				 nla_len(info->attrs[WGDEVICE_A_PRIVATE_KEY]));
+diff --git noise.c noise.c
+index e27d49b..00d967a 100644
+--- noise.c
++++ noise.c
+@@ -5,6 +5,7 @@
+ 
+ #include "noise.h"
+ #include "device.h"
++#include "magic_header.h"
+ #include "peer.h"
+ #include "messages.h"
+ #include "queueing.h"
+@@ -566,8 +567,8 @@ wg_noise_handshake_consume_initiation(struct message_handshake_initiation *src,
+ 	u8 e[NOISE_PUBLIC_KEY_LEN];
+ 	u8 t[NOISE_TIMESTAMP_LEN];
+ 	u64 initiation_consumption;
+-	bool advanced_security = wg->advanced_security_config.advanced_security &&
+-	                         (SKB_TYPE_LE32(skb) == cpu_to_le32(wg->advanced_security_config.init_packet_magic_header));
++	bool advanced_security = wg->advanced_security &&
++	                         mh_validate(SKB_TYPE_LE32(skb), &wg->headers[MSGIDX_HANDSHAKE_INIT]);
+ 
+ 	down_read(&wg->static_identity.lock);
+ 	if (unlikely(!wg->static_identity.has_identity))
+diff --git peer.c peer.c
+index 557dc85..1acd00a 100644
+--- peer.c
++++ peer.c
+@@ -41,7 +41,6 @@ struct wg_peer *wg_peer_create(struct wg_device *wg,
+ 				public_key, preshared_key, peer);
+ 	peer->internal_id = atomic64_inc_return(&peer_counter);
+ 	peer->serial_work_cpu = nr_cpumask_bits;
+-	peer->advanced_security = wg->advanced_security_config.advanced_security;
+ 	wg_cookie_init(&peer->latest_cookie);
+ 	wg_timers_init(peer);
+ 	wg_cookie_checker_precompute_peer_keys(peer);
+diff --git receive.c receive.c
+index c68c988..7e6d9da 100644
+--- receive.c
++++ receive.c
+@@ -10,6 +10,7 @@
+ #include "messages.h"
+ #include "cookie.h"
+ #include "socket.h"
++#include "magic_header.h"
+ 
+ #include <linux/simd.h>
+ #include <linux/ip.h>
+@@ -35,53 +36,45 @@ static size_t validate_header_len(struct sk_buff *skb, struct wg_device *wg)
+ {
+ 	if (unlikely(skb->len < sizeof(struct message_header)))
+ 		return 0;
+-	if ((SKB_TYPE_LE32(skb) == cpu_to_le32(wg->advanced_security_config.transport_packet_magic_header) ||
+-	    SKB_TYPE_LE32(skb) == cpu_to_le32(MESSAGE_DATA)) &&
++	if (mh_validate(SKB_TYPE_LE32(skb), &wg->headers[MSGIDX_TRANSPORT]) &&
+ 	    skb->len >= MESSAGE_MINIMUM_LENGTH)
+-		return sizeof(struct message_data);
+-	if ((SKB_TYPE_LE32(skb) == cpu_to_le32(wg->advanced_security_config.init_packet_magic_header) ||
+-	    SKB_TYPE_LE32(skb) == cpu_to_le32(MESSAGE_HANDSHAKE_INITIATION)) &&
++		return MESSAGE_TRANSPORT_SIZE;
++	if (mh_validate(SKB_TYPE_LE32(skb), &wg->headers[MSGIDX_HANDSHAKE_INIT]) &&
+ 	    skb->len == MESSAGE_INITIATION_SIZE)
+ 		return MESSAGE_INITIATION_SIZE;
+-	if ((SKB_TYPE_LE32(skb) == cpu_to_le32(wg->advanced_security_config.response_packet_magic_header) ||
+-	    SKB_TYPE_LE32(skb) == cpu_to_le32(MESSAGE_HANDSHAKE_RESPONSE)) &&
++	if (mh_validate(SKB_TYPE_LE32(skb), &wg->headers[MSGIDX_HANDSHAKE_RESPONSE]) &&
+ 	    skb->len == MESSAGE_RESPONSE_SIZE)
+ 		return MESSAGE_RESPONSE_SIZE;
+-	if ((SKB_TYPE_LE32(skb) == cpu_to_le32(wg->advanced_security_config.cookie_packet_magic_header) ||
+-	    SKB_TYPE_LE32(skb) == cpu_to_le32(MESSAGE_HANDSHAKE_COOKIE)) &&
++	if (mh_validate(SKB_TYPE_LE32(skb), &wg->headers[MSGIDX_HANDSHAKE_COOKIE]) &&
+ 	    skb->len == MESSAGE_COOKIE_REPLY_SIZE)
+ 		return MESSAGE_COOKIE_REPLY_SIZE;
++
++	net_dbg_ratelimited("%s: unknown header %d", wg->dev->name, le32_to_cpu(SKB_TYPE_LE32(skb)));
+ 	return 0;
+ }
+ 
+ static void prepare_advanced_secured_message(struct sk_buff *skb, struct wg_device *wg)
+ {
+-	u32 assumed_type, assumed_offset;
+-
+-	if (wg->advanced_security_config.advanced_security) {
+-		if (skb->len == MESSAGE_INITIATION_SIZE + wg->advanced_security_config.init_packet_junk_size) {
+-			assumed_type = cpu_to_le32(wg->advanced_security_config.init_packet_magic_header);
+-			assumed_offset = wg->advanced_security_config.init_packet_junk_size;
+-		} else if (skb->len == MESSAGE_RESPONSE_SIZE + wg->advanced_security_config.response_packet_junk_size) {
+-			assumed_type = cpu_to_le32(wg->advanced_security_config.response_packet_magic_header);
+-			assumed_offset = wg->advanced_security_config.response_packet_junk_size;
+-		} else
+-			return;
++	int offset = wg->junk_size[MSGIDX_TRANSPORT];;
++	int i;
+ 
+-		if (unlikely(assumed_offset <= 0) || unlikely(!pskb_may_pull(skb, assumed_offset)))
+-			return;
+-
+-		if (skb_is_nonlinear(skb) && unlikely(skb_linearize(skb))) {
+-			net_dbg_skb_ratelimited("%s: non-linear sk_buff from %pISpfsc could not be linearized, dropping packet\n",
+-			                        wg->dev->name, skb);
+-			return;
++	for (i = MSGIDX_HANDSHAKE_INIT; i <= MSGIDX_HANDSHAKE_COOKIE; ++i) {
++		if (skb->len == wg->msg_size[i]) {
++			offset = wg->junk_size[i];
++			break;
+ 		}
+-		skb_pull(skb, assumed_offset);
++	}
++	
++	if (offset <= 0 || unlikely(!pskb_may_pull(skb, offset)))
++		return;
+ 
+-		if (SKB_TYPE_LE32(skb) != assumed_type) {
+-			skb_push(skb, assumed_offset);
+-		}
++	if (skb_is_nonlinear(skb) && unlikely(skb_linearize(skb))) {
++		net_dbg_skb_ratelimited("%s: non-linear sk_buff from %pISpfsc could not be linearized, dropping packet\n",
++								wg->dev->name, skb);
++		return;
+ 	}
++
++	skb_pull(skb, offset);
+ }
+ 
+ static int prepare_skb_header(struct sk_buff *skb, struct wg_device *wg)
+@@ -142,8 +135,7 @@ static void wg_receive_handshake_packet(struct wg_device *wg,
+ 	bool packet_needs_cookie;
+ 	bool under_load;
+ 
+-	if (SKB_TYPE_LE32(skb) == cpu_to_le32(wg->advanced_security_config.cookie_packet_magic_header) ||
+-	    SKB_TYPE_LE32(skb) == cpu_to_le32(MESSAGE_HANDSHAKE_COOKIE)) {
++	if (mh_validate(SKB_TYPE_LE32(skb), &wg->headers[MSGIDX_HANDSHAKE_COOKIE])) {
+ 		net_dbg_skb_ratelimited("%s: Receiving cookie response from %pISpfsc\n",
+ 					wg->dev->name, skb);
+ 		wg_cookie_message_consume(
+@@ -173,8 +165,7 @@ static void wg_receive_handshake_packet(struct wg_device *wg,
+ 		return;
+ 	}
+ 
+-	if (SKB_TYPE_LE32(skb) == cpu_to_le32(wg->advanced_security_config.init_packet_magic_header) ||
+-	    SKB_TYPE_LE32(skb) == cpu_to_le32(MESSAGE_HANDSHAKE_INITIATION)) {
++	if (mh_validate(SKB_TYPE_LE32(skb), &wg->headers[MSGIDX_HANDSHAKE_INIT])) {
+ 		struct message_handshake_initiation *message =
+ 			(struct message_handshake_initiation *)skb->data;
+ 
+@@ -195,8 +186,7 @@ static void wg_receive_handshake_packet(struct wg_device *wg,
+ 				    &peer->endpoint.addr);
+ 		wg_packet_send_handshake_response(peer);
+ 	}
+-	if (SKB_TYPE_LE32(skb) == cpu_to_le32(wg->advanced_security_config.response_packet_magic_header) ||
+-	    SKB_TYPE_LE32(skb) == cpu_to_le32(MESSAGE_HANDSHAKE_RESPONSE)) {
++	if (mh_validate(SKB_TYPE_LE32(skb), &wg->headers[MSGIDX_HANDSHAKE_RESPONSE])) {
+ 		struct message_handshake_response *message =
+ 			(struct message_handshake_response *)skb->data;
+ 
+@@ -592,12 +582,9 @@ void wg_packet_receive(struct wg_device *wg, struct sk_buff *skb)
+ 	if (unlikely(prepare_skb_header(skb, wg) < 0))
+ 		goto err;
+ 
+-	if (SKB_TYPE_LE32(skb) == cpu_to_le32(wg->advanced_security_config.init_packet_magic_header) ||
+-	    SKB_TYPE_LE32(skb) == cpu_to_le32(wg->advanced_security_config.response_packet_magic_header) ||
+-	    SKB_TYPE_LE32(skb) == cpu_to_le32(wg->advanced_security_config.cookie_packet_magic_header) ||
+-	    SKB_TYPE_LE32(skb) == cpu_to_le32(MESSAGE_HANDSHAKE_INITIATION) ||
+-	    SKB_TYPE_LE32(skb) == cpu_to_le32(MESSAGE_HANDSHAKE_RESPONSE) ||
+-	    SKB_TYPE_LE32(skb) == cpu_to_le32(MESSAGE_HANDSHAKE_COOKIE)) {
++	if (mh_validate(SKB_TYPE_LE32(skb), &wg->headers[MSGIDX_HANDSHAKE_INIT]) ||
++		mh_validate(SKB_TYPE_LE32(skb), &wg->headers[MSGIDX_HANDSHAKE_RESPONSE]) ||
++		mh_validate(SKB_TYPE_LE32(skb), &wg->headers[MSGIDX_HANDSHAKE_COOKIE])) {
+ 		int cpu, ret = -EBUSY;
+ 
+ 		if (unlikely(!rng_is_initialized()))
+@@ -620,8 +607,7 @@ drop:
+ 		/* Queues up a call to packet_process_queued_handshake_packets(skb): */
+ 		queue_work_on(cpu, wg->handshake_receive_wq,
+ 		              &per_cpu_ptr(wg->handshake_queue.worker, cpu)->work);
+-	} else if (SKB_TYPE_LE32(skb) == cpu_to_le32(wg->advanced_security_config.transport_packet_magic_header) ||
+-	           SKB_TYPE_LE32(skb) == cpu_to_le32(MESSAGE_DATA)) {
++	} else if (mh_validate(SKB_TYPE_LE32(skb), &wg->headers[MSGIDX_TRANSPORT])) {
+ 		PACKET_CB(skb)->ds = ip_tunnel_get_dsfield(ip_hdr(skb), skb);
+ 		wg_packet_consume_data(wg, skb);
+ 	} else {
+diff --git send.c send.c
+index d6c27f1..f6b4135 100644
+--- send.c
++++ send.c
+@@ -3,6 +3,8 @@
+  * Copyright (C) 2015-2019 Jason A. Donenfeld <Jason@zx2c4.com>. All Rights Reserved.
+  */
+ 
++#include "junk.h"
++#include "magic_header.h"
+ #include "queueing.h"
+ #include "timers.h"
+ #include "device.h"
+@@ -33,6 +35,8 @@ static void wg_packet_send_handshake_initiation(struct wg_peer *peer)
+ 	void *buffer;
+ 	u8 ds;
+ 	u16 junk_packet_count, junk_packet_size;
++	int i;
++	struct jp_spec* spec;
+ 
+ 	if (!wg_birthdate_has_expired(atomic64_read(&peer->last_sent_handshake),
+ 				      REKEY_TIMEOUT))
+@@ -43,43 +47,40 @@ static void wg_packet_send_handshake_initiation(struct wg_peer *peer)
+ 			    peer->device->dev->name, peer->internal_id,
+ 			    &peer->endpoint.addr);
+ 
+-	if (wg->advanced_security_config.advanced_security && peer->advanced_security) {
+-		junk_packet_count = wg->advanced_security_config.junk_packet_count;
+-		buffer = kzalloc(wg->advanced_security_config.junk_packet_max_size, GFP_KERNEL);
++	for (i = 0; i < ARRAY_SIZE(wg->ispecs); ++i)
++	{
++		spec = &wg->ispecs[i];
++		if (spec->pkt_size > 0) {
++			mutex_lock(&spec->lock);
++			jp_spec_applymods(spec);
++			wg_socket_send_buffer_to_peer(peer, spec->pkt, spec->pkt_size, 0, 0);
++			mutex_unlock(&spec->lock);
++		}
++	}
++	
++	if (wg->advanced_security && peer->advanced_security) {
++		junk_packet_count = wg->jc;
++		buffer = kzalloc(wg->jmax, GFP_KERNEL);
+ 
+ 		while (junk_packet_count-- > 0) {
+-			junk_packet_size = (u16) wg_get_random_u32_inclusive(
+-					wg->advanced_security_config.junk_packet_min_size,
+-					wg->advanced_security_config.junk_packet_max_size);
++			junk_packet_size = (u16) wg_get_random_u32_inclusive(wg->jmin, wg->jmax);
+ 
+ 			get_random_bytes(buffer, junk_packet_size);
+ 			get_random_bytes(&ds, 1);
+-			wg_socket_send_buffer_to_peer(peer, buffer, junk_packet_size, ds);
++			wg_socket_send_buffer_to_peer(peer, buffer, junk_packet_size, ds, 0);
+ 		}
+ 
+ 		kfree(buffer);
+ 	}
+ 
+-	net_dbg_ratelimited("%s: Initiation magic header: %u\n",
+-	                    peer->device->dev->name,
+-						peer->advanced_security ? wg->advanced_security_config.init_packet_magic_header :
+-						MESSAGE_HANDSHAKE_INITIATION);
+-
+-	if (wg_noise_handshake_create_initiation(&packet, &peer->handshake, peer->advanced_security ?
+-			wg->advanced_security_config.init_packet_magic_header : MESSAGE_HANDSHAKE_INITIATION)) {
++	if (wg_noise_handshake_create_initiation(&packet, &peer->handshake, mh_genheader(&wg->headers[MSGIDX_HANDSHAKE_INIT]))) {
+ 		wg_cookie_add_mac_to_packet(&packet, sizeof(packet), peer);
+ 		wg_timers_any_authenticated_packet_traversal(peer);
+ 		wg_timers_any_authenticated_packet_sent(peer);
+ 		atomic64_set(&peer->last_sent_handshake,
+ 			     ktime_get_coarse_boottime_ns());
+ 
+-		if (wg->advanced_security_config.advanced_security && peer->advanced_security) {
+-			wg_socket_send_junked_buffer_to_peer(peer, &packet, sizeof(packet),
+-			                              HANDSHAKE_DSCP, wg->advanced_security_config.init_packet_junk_size);
+-		} else {
+-			wg_socket_send_buffer_to_peer(peer, &packet, sizeof(packet),
+-			                              HANDSHAKE_DSCP);
+-		}
++		wg_socket_send_buffer_to_peer(peer, &packet, sizeof(packet), HANDSHAKE_DSCP, wg->junk_size[MSGIDX_HANDSHAKE_INIT]);
+ 		wg_timers_handshake_initiated(peer);
+ 	}
+ }
+@@ -133,10 +134,7 @@ void wg_packet_send_handshake_response(struct wg_peer *peer)
+ 			    peer->device->dev->name, peer->internal_id,
+ 			    &peer->endpoint.addr);
+ 
+-	if (wg_noise_handshake_create_response(&packet, &peer->handshake,
+-		                                   peer->advanced_security ?
+-		                                   wg->advanced_security_config.response_packet_magic_header :
+-		                                   MESSAGE_HANDSHAKE_RESPONSE)) {
++	if (wg_noise_handshake_create_response(&packet, &peer->handshake, mh_genheader(&wg->headers[MSGIDX_HANDSHAKE_RESPONSE]))) {
+ 		wg_cookie_add_mac_to_packet(&packet, sizeof(packet), peer);
+ 		if (wg_noise_handshake_begin_session(&peer->handshake,
+ 						     &peer->keypairs)) {
+@@ -145,16 +143,7 @@ void wg_packet_send_handshake_response(struct wg_peer *peer)
+ 			wg_timers_any_authenticated_packet_sent(peer);
+ 			atomic64_set(&peer->last_sent_handshake,
+ 				     ktime_get_coarse_boottime_ns());
+-			if (wg->advanced_security_config.advanced_security && peer->advanced_security) {
+-				wg_socket_send_junked_buffer_to_peer(peer, &packet,
+-				                              sizeof(packet),
+-				                              HANDSHAKE_DSCP,
+-				                              wg->advanced_security_config.response_packet_junk_size);
+-			} else {
+-				wg_socket_send_buffer_to_peer(peer, &packet,
+-							      sizeof(packet),
+-							      HANDSHAKE_DSCP);
+-			}
++			wg_socket_send_buffer_to_peer(peer, &packet, sizeof(packet), HANDSHAKE_DSCP, wg->junk_size[MSGIDX_HANDSHAKE_RESPONSE]);
+ 		}
+ 	}
+ }
+@@ -168,17 +157,8 @@ void wg_packet_send_handshake_cookie(struct wg_device *wg,
+ 	net_dbg_skb_ratelimited("%s: Sending cookie response for denied handshake message for %pISpfsc\n",
+ 				wg->dev->name, initiating_skb);
+ 
+-	if (SKB_TYPE_LE32(initiating_skb) == cpu_to_le32(MESSAGE_HANDSHAKE_INITIATION) ||
+-	    SKB_TYPE_LE32(initiating_skb) == cpu_to_le32(MESSAGE_HANDSHAKE_RESPONSE)) {
+-		wg_cookie_message_create(&packet, initiating_skb, sender_index,
+-		                         &wg->cookie_checker, MESSAGE_HANDSHAKE_COOKIE);
+-
+-	} else {
+-		wg_cookie_message_create(&packet, initiating_skb, sender_index,
+-		                         &wg->cookie_checker, wg->advanced_security_config.cookie_packet_magic_header);
+-	}
+-	wg_socket_send_buffer_as_reply_to_skb(wg, initiating_skb, &packet,
+-					      sizeof(packet));
++	wg_cookie_message_create(&packet, initiating_skb, sender_index, &wg->cookie_checker, mh_genheader(&wg->headers[MSGIDX_HANDSHAKE_COOKIE]));
++	wg_socket_send_buffer_as_reply_to_skb(wg, initiating_skb, &packet, sizeof(packet), wg->junk_size[MSGIDX_HANDSHAKE_COOKIE]);
+ }
+ 
+ static void keep_key_fresh(struct wg_peer *peer)
+@@ -361,8 +341,8 @@ void wg_packet_encrypt_worker(struct work_struct *work)
+ 		skb_list_walk_safe(first, skb, next) {
+ 			wg = PACKET_PEER(first)->device;
+ 
+-			if (likely(encrypt_packet(PACKET_PEER(first)->advanced_security ?
+-						  wg->advanced_security_config.transport_packet_magic_header : MESSAGE_DATA,
++			if (likely(encrypt_packet(
++						  mh_genheader(&wg->headers[MSGIDX_TRANSPORT]),
+ 						  skb,
+ 						  PACKET_CB(first)->keypair,
+ 						  &simd_context))) {
+diff --git socket.c socket.c
+index 2dd574f..504a220 100644
+--- socket.c
++++ socket.c
+@@ -187,38 +187,30 @@ int wg_socket_send_skb_to_peer(struct wg_peer *peer, struct sk_buff *skb, u8 ds)
+ }
+ 
+ int wg_socket_send_buffer_to_peer(struct wg_peer *peer, void *buffer,
+-				  size_t len, u8 ds)
++				  size_t len, u8 ds, size_t junk_size)
+ {
+-	struct sk_buff *skb = alloc_skb(len + SKB_HEADER_LEN, GFP_ATOMIC);
++	void* junk;
++	struct sk_buff *skb = alloc_skb(len + junk_size + SKB_HEADER_LEN, GFP_ATOMIC);
+ 
+ 	if (unlikely(!skb))
+ 		return -ENOMEM;
+ 
+ 	skb_reserve(skb, SKB_HEADER_LEN);
+ 	skb_set_inner_network_header(skb, 0);
++	junk = skb_put(skb, junk_size);
++	get_random_bytes(junk, junk_size);
+ 	skb_put_data(skb, buffer, len);
+ 	return wg_socket_send_skb_to_peer(peer, skb, ds);
+ }
+ 
+-int wg_socket_send_junked_buffer_to_peer(struct wg_peer *peer, void *buffer,
+-                                          size_t len, u8 ds, u16 junk_size)
+-{
+-	int ret;
+-	void *new_buffer = kzalloc(len + junk_size, GFP_KERNEL);
+-	get_random_bytes(new_buffer, junk_size);
+-	memcpy(new_buffer + junk_size, buffer, len);
+-	ret = wg_socket_send_buffer_to_peer(peer, new_buffer, len + junk_size, ds);
+-	kfree(new_buffer);
+-	return ret;
+-}
+-
+ int wg_socket_send_buffer_as_reply_to_skb(struct wg_device *wg,
+ 					  struct sk_buff *in_skb, void *buffer,
+-					  size_t len)
++					  size_t len, size_t junk_size)
+ {
+ 	int ret = 0;
+ 	struct sk_buff *skb;
+ 	struct endpoint endpoint;
++	void* junk;
+ 
+ 	if (unlikely(!in_skb))
+ 		return -EINVAL;
+@@ -226,11 +218,13 @@ int wg_socket_send_buffer_as_reply_to_skb(struct wg_device *wg,
+ 	if (unlikely(ret < 0))
+ 		return ret;
+ 
+-	skb = alloc_skb(len + SKB_HEADER_LEN, GFP_ATOMIC);
++	skb = alloc_skb(len + junk_size + SKB_HEADER_LEN, GFP_ATOMIC);
+ 	if (unlikely(!skb))
+ 		return -ENOMEM;
+ 	skb_reserve(skb, SKB_HEADER_LEN);
+ 	skb_set_inner_network_header(skb, 0);
++	junk = skb_put(skb, junk_size);
++	get_random_bytes(junk, junk_size);
+ 	skb_put_data(skb, buffer, len);
+ 
+ 	if (endpoint.addr.sa_family == AF_INET)
+diff --git socket.h socket.h
+index e4e3f96..82eb53e 100644
+--- socket.h
++++ socket.h
+@@ -15,14 +15,12 @@ int wg_socket_init(struct wg_device *wg, u16 port);
+ void wg_socket_reinit(struct wg_device *wg, struct sock *new4,
+ 		      struct sock *new6);
+ int wg_socket_send_buffer_to_peer(struct wg_peer *peer, void *data,
+-				  size_t len, u8 ds);
+-int wg_socket_send_junked_buffer_to_peer(struct wg_peer *peer, void *data,
+-                                  size_t len, u8 ds, u16 junk_size);
++				  size_t len, u8 ds, size_t junk_size);
+ int wg_socket_send_skb_to_peer(struct wg_peer *peer, struct sk_buff *skb,
+ 			       u8 ds);
+ int wg_socket_send_buffer_as_reply_to_skb(struct wg_device *wg,
+ 					  struct sk_buff *in_skb,
+-					  void *out_buffer, size_t len);
++					  void *out_buffer, size_t len, size_t junk_size);
+ 
+ int wg_socket_endpoint_from_skb(struct endpoint *endpoint,
+ 				const struct sk_buff *skb);
+diff --git uapi/wireguard.h uapi/wireguard.h
+index 9d10f7c..9716e3c 100644
+--- uapi/wireguard.h
++++ uapi/wireguard.h
+@@ -154,7 +154,7 @@
+ #define _WG_UAPI_WIREGUARD_H
+ 
+ #define WG_GENL_NAME "amneziawg"
+-#define WG_GENL_VERSION 1
++#define WG_GENL_VERSION 2
+ 
+ #define WG_KEY_LEN 32
+ 
+@@ -192,6 +192,13 @@ enum wgdevice_attribute {
+ 	WGDEVICE_A_H3,
+ 	WGDEVICE_A_H4,
+ 	WGDEVICE_A_PEER,
++	WGDEVICE_A_S3,
++	WGDEVICE_A_S4,
++	WGDEVICE_A_I1,
++	WGDEVICE_A_I2,
++	WGDEVICE_A_I3,
++	WGDEVICE_A_I4,
++	WGDEVICE_A_I5,
+ 	__WGDEVICE_A_LAST
+ };
+ #define WGDEVICE_A_MAX (__WGDEVICE_A_LAST - 1)
